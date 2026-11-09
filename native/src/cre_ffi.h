@@ -20,7 +20,10 @@ extern "C" {
 #define CRE_API __attribute__((visibility("default")))
 
 /* Version of this C interface. Increase it when a signature changes. */
-#define CRE_FFI_VERSION 1
+#define CRE_FFI_VERSION 2
+
+/* Flags for cre_doc_draw_page(). */
+#define CRE_DRAW_INVERT_IMAGES 1
 
 typedef struct CreDoc CreDoc;
 
@@ -33,6 +36,8 @@ CRE_API int cre_register_font(const char *path);
 CRE_API void cre_fonts_done(const char *default_face);
 CRE_API int cre_latest_dom_version(void);
 CRE_API int cre_normalized_xpointers_dom_version(void);
+/* JSON array of the registered font face names, sorted. */
+CRE_API char *cre_font_faces_json(void);
 
 /* Document view. */
 CRE_API CreDoc *cre_doc_new(int width, int height);
@@ -53,6 +58,8 @@ CRE_API void cre_doc_set_colors(CreDoc *doc, uint32_t background_rgb, uint32_t t
 CRE_API int cre_doc_load(CreDoc *doc, const char *path);
 CRE_API void cre_doc_resize(CreDoc *doc, int width, int height);
 CRE_API void cre_doc_render(CreDoc *doc);
+/* Mark the layout as stale after a property change. The next render redoes it. */
+CRE_API void cre_doc_request_render(CreDoc *doc);
 
 CRE_API int cre_doc_page_count(CreDoc *doc);
 CRE_API int cre_doc_current_page(CreDoc *doc);
@@ -77,6 +84,10 @@ CRE_API char *cre_doc_toc_json(CreDoc *doc);
 /* Draw the current page into an RGBA8888 buffer of width * height * 4 bytes.
  * Returns 1 on success. */
 CRE_API int cre_doc_draw(CreDoc *doc, uint8_t *rgba, int width, int height);
+/* Draw page `page` (1-based) without changing the current position.
+ * width and height must be the view size. flags: CRE_DRAW_*.
+ * Returns 1 on success, 0 when the page does not exist. */
+CRE_API int cre_doc_draw_page(CreDoc *doc, int page, uint8_t *rgba, int width, int height, int flags);
 
 CRE_API void cre_free(void *p);
 

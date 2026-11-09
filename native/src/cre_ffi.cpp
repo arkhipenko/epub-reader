@@ -155,6 +155,10 @@ void cre_doc_apply_defaults(CreDoc *doc, int dpi) {
     // creoptions.lua status_line: 1 disables the crengine header line
     // (KOReader default). The app draws its own status line.
     props->setInt("window.status.line", 1);
+    // KOReader creoptions visible_pages default 1: one column also in
+    // landscape (crengine would show two). The app page numbers then map
+    // 1:1 to crengine pages.
+    props->setInt(PROP_LANDSCAPE_PAGES, 1);
     v->propsApply(props);
     // cre.cpp adjustFontSizes().
     v->setMinFontSize(12);
@@ -346,15 +350,8 @@ char *cre_doc_toc_json(CreDoc *doc) {
     return dup_str(out);
 }
 
-int cre_doc_draw(CreDoc *doc, uint8_t *rgba, int width, int height) {
-    if (!doc || !doc->dom || !rgba || width <= 0 || height <= 0) return 0;
-    doc->view->Resize(width, height);
-    doc->view->Render();
-    LVColorDrawBuf buf(width, height, rgba, 32);
-    doc->view->Draw(buf, false);
-    // crengine gives BGRA with inverted alpha. Convert to RGBA, straight alpha.
-    size_t count = (size_t)width * height;
-    uint8_t *p = rgba;
+// crengine gives BGRA with inverted alpha. Convert to RGBA, straight alpha.
+static void bgra_to_rgba(uint8_t *p, size_t count) {
     while (count--) {
         uint8_t b = p[0];
         p[0] = p[2];
@@ -362,7 +359,47 @@ int cre_doc_draw(CreDoc *doc, uint8_t *rgba, int width, int height) {
         p[3] ^= 0xFF;
         p += 4;
     }
+}
+
+int cre_doc_draw(CreDoc *doc, uint8_t *rgba, int width, int height) {
+    if (!doc || !doc->dom || !rgba || width <= 0 || height <= 0) return 0;
+    doc->view->Resize(width, height);
+    doc->view->Render();
+    LVColorDrawBuf buf(width, height, rgba, 32);
+    doc->view->Draw(buf, false);
+    bgra_to_rgba(rgba, (size_t)width * height);
     return 1;
+}
+
+int cre_doc_draw_page(CreDoc *doc, int page, uint8_t *rgba, int width, int height, int flags) {
+    if (!doc || !doc->dom || !rgba || width <= 0 || height <= 0) return 0;
+    if (page < 1 || page > doc->view->getPageCount(false)) return 0;
+    LVColorDrawBuf buf(width, height, rgba, 32);
+    buf.setInvertImages((flags & CRE_DRAW_INVERT_IMAGES) != 0);
+    // position -1 and an explicit page: draws that page, the current
+    // position does not change.
+    doc->view->Draw(buf, -1, page - 1, false, false);
+    bgra_to_rgba(rgba, (size_t)width * height);
+    return 1;
+}
+
+void cre_doc_request_render(CreDoc *doc) {
+    if (!doc) return;
+    doc->view->requestRender();
+}
+
+char *cre_font_faces_json(void) {
+    if (!fontMan) return NULL;
+    lString32Collection faces;
+    fontMan->getFaceList(faces);
+    faces.sort();
+    lString8 out("[");
+    for (int i = 0; i < faces.length(); i++) {
+        if (i > 0) out << ",";
+        json_escape(out, faces[i]);
+    }
+    out << "]";
+    return dup_str(out);
 }
 
 void cre_free(void *p) { free(p); }

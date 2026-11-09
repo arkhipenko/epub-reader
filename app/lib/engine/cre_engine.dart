@@ -12,35 +12,46 @@ import 'package:ffi/ffi.dart';
 
 import 'cre_bindings.dart';
 
-/// Layout settings for one open book. Sizes are physical pixels.
-class ReaderLayout {
-  const ReaderLayout({
+/// Layout settings for the open book. Sizes are physical pixels.
+/// A change to any field except the colors makes the engine lay out the
+/// book again.
+class EngineLayout {
+  const EngineLayout({
+    required this.fontFace,
     required this.fontSize,
+    required this.interlinePercent,
     required this.marginLeft,
     required this.marginTop,
     required this.marginRight,
     required this.marginBottom,
-    this.interlinePercent = 100,
-    this.fontFace = 'Noto Serif',
-    this.backgroundRgb = 0xFFFFFF,
-    this.textRgb = 0x000000,
+    required this.hyphenation,
+    required this.embeddedStyles,
+    required this.embeddedFonts,
+    required this.backgroundRgb,
+    required this.textRgb,
   });
 
+  final String fontFace;
   final int fontSize;
+  final int interlinePercent;
   final int marginLeft;
   final int marginTop;
   final int marginRight;
   final int marginBottom;
-  final int interlinePercent;
-  final String fontFace;
+  final bool hyphenation;
+  final bool embeddedStyles;
+  final bool embeddedFonts;
   final int backgroundRgb;
   final int textRgb;
 
   Map<String, Object?> toMap() => {
-        'fontSize': fontSize,
-        'margins': [marginLeft, marginTop, marginRight, marginBottom],
-        'interline': interlinePercent,
         'fontFace': fontFace,
+        'fontSize': fontSize,
+        'interline': interlinePercent,
+        'margins': [marginLeft, marginTop, marginRight, marginBottom],
+        'hyph': hyphenation,
+        'embStyles': embeddedStyles,
+        'embFonts': embeddedFonts,
         'bg': backgroundRgb,
         'fg': textRgb,
       };
@@ -60,40 +71,58 @@ class BookInfo {
     required this.title,
     required this.authors,
     required this.language,
+    required this.series,
     required this.format,
-    required this.pageCount,
-    required this.toc,
   });
 
   final String title;
   final String authors;
   final String language;
+  final String series;
   final String format;
-  final int pageCount;
-  final List<TocEntry> toc;
 }
 
-/// One rendered page and the reading position it shows.
-class PageState {
-  const PageState({
+/// The reading position as the engine reports it.
+class EnginePosition {
+  const EnginePosition({
     required this.page,
     required this.pageCount,
     required this.percent,
     required this.xpointer,
-    required this.width,
-    required this.height,
-    required this.rgba,
   });
 
+  /// 1-based page.
   final int page;
   final int pageCount;
 
   /// crengine position percent, 0 to 10000.
   final int percent;
+
+  /// KOReader-compatible XPointer of the top of the page.
   final String? xpointer;
-  final int width;
-  final int height;
-  final Uint8List rgba;
+
+  static EnginePosition fromMap(Map m) => EnginePosition(
+        page: m['page'] as int,
+        pageCount: m['pages'] as int,
+        percent: m['percent'] as int,
+        xpointer: m['xpointer'] as String?,
+      );
+}
+
+/// Result of a layout change: new page count, TOC page numbers and position.
+class LayoutResult {
+  const LayoutResult({required this.position, required this.toc});
+
+  final EnginePosition position;
+  final List<TocEntry> toc;
+}
+
+class OpenResult {
+  const OpenResult({required this.info, required this.position, required this.toc});
+
+  final BookInfo info;
+  final EnginePosition position;
+  final List<TocEntry> toc;
 }
 
 class EngineException implements Exception {
@@ -114,6 +143,9 @@ class CreEngine {
   final Map<int, Completer<Object?>> _pending = {};
   int _nextId = 1;
 
+  /// Font faces that the engine registered at start.
+  List<String> fontFaces = const [];
+
   /// Starts the engine isolate and initializes fonts, hyphenation and cache.
   /// [dataDir] holds the fonts, css and hyph folders.
   static Future<CreEngine> start({required String dataDir, required String cacheDir}) async {
@@ -130,7 +162,8 @@ class CreEngine {
     });
     final toWorker = await ready.future;
     engine = CreEngine._(isolate, toWorker, fromWorker);
-    await engine._call('init', {'dataDir': dataDir, 'cacheDir': cacheDir});
+    final r = (await engine._call('init', {'dataDir': dataDir, 'cacheDir': cacheDir}))! as Map;
+    engine.fontFaces = (jsonDecode(r['faces'] as String) as List).cast<String>();
     return engine;
   }
 
@@ -152,55 +185,77 @@ class CreEngine {
     return completer.future;
   }
 
-  Future<BookInfo> open(String path, {required int width, required int height, required int dpi,
-      required ReaderLayout layout}) async {
+  static List<TocEntry> _toc(Object? json) => (jsonDecode(json as String) as List)
+      .cast<Map<String, dynamic>>()
+      .map((e) => TocEntry(
+            title: e['title'] as String,
+            xpointer: e['xpointer'] as String,
+            page: e['page'] as int,
+            depth: e['depth'] as int,
+          ))
+      .toList();
+
+  /// Opens a book. When [xpointer] is given and found, the book opens there.
+  Future<OpenResult> open(
+    String path, {
+    required int width,
+    required int height,
+    required int dpi,
+    required EngineLayout layout,
+    String? xpointer,
+  }) async {
     final r = (await _call('open', {
       'path': path,
       'width': width,
       'height': height,
       'dpi': dpi,
-      'isFb2': _isFb2(path),
+      'isFb2': isFb2Path(path),
       'layout': layout.toMap(),
+      'xpointer': xpointer,
     }))! as Map;
     final info = jsonDecode(r['info'] as String) as Map<String, dynamic>;
-    final toc = (jsonDecode(r['toc'] as String) as List)
-        .cast<Map<String, dynamic>>()
-        .map((e) => TocEntry(
-              title: e['title'] as String,
-              xpointer: e['xpointer'] as String,
-              page: e['page'] as int,
-              depth: e['depth'] as int,
-            ))
-        .toList();
-    return BookInfo(
-      title: info['title'] as String,
-      authors: info['authors'] as String,
-      language: info['language'] as String,
-      format: info['format'] as String,
-      pageCount: r['pages'] as int,
-      toc: toc,
+    return OpenResult(
+      info: BookInfo(
+        title: info['title'] as String,
+        authors: info['authors'] as String,
+        language: info['language'] as String,
+        series: info['series'] as String,
+        format: info['format'] as String,
+      ),
+      position: EnginePosition.fromMap(r['pos'] as Map),
+      toc: _toc(r['toc']),
     );
   }
 
-  /// Draws the current page.
-  Future<PageState> render() async {
-    final r = (await _call('render'))! as Map;
-    return PageState(
-      page: r['page'] as int,
-      pageCount: r['pages'] as int,
-      percent: r['percent'] as int,
-      xpointer: r['xpointer'] as String?,
-      width: r['w'] as int,
-      height: r['h'] as int,
-      rgba: (r['rgba'] as TransferableTypedData).materialize().asUint8List(),
-    );
+  /// Applies new layout settings and keeps the reading position.
+  Future<LayoutResult> setLayout(EngineLayout layout) async {
+    final r = (await _call('setLayout', {'layout': layout.toMap()}))! as Map;
+    return LayoutResult(position: EnginePosition.fromMap(r['pos'] as Map), toc: _toc(r['toc']));
   }
 
-  Future<void> gotoPage(int page) => _call('gotoPage', {'page': page});
+  /// Changes the page size and keeps the reading position.
+  Future<LayoutResult> resize(int width, int height) async {
+    final r = (await _call('resize', {'width': width, 'height': height}))! as Map;
+    return LayoutResult(position: EnginePosition.fromMap(r['pos'] as Map), toc: _toc(r['toc']));
+  }
 
-  /// Returns false when the XPointer is not in the document.
-  Future<bool> gotoXPointer(String xpointer) async =>
-      (await _call('gotoXPointer', {'xpointer': xpointer})) as bool;
+  Future<EnginePosition> gotoPage(int page) async =>
+      EnginePosition.fromMap((await _call('gotoPage', {'page': page}))! as Map);
+
+  /// Returns null when the XPointer is not in the document.
+  Future<EnginePosition?> gotoXPointer(String xpointer) async {
+    final r = await _call('gotoXPointer', {'xpointer': xpointer});
+    return r == null ? null : EnginePosition.fromMap(r as Map);
+  }
+
+  Future<EnginePosition> position() async => EnginePosition.fromMap((await _call('position'))! as Map);
+
+  /// Draws [page] as RGBA8888 at the current page size. The reading
+  /// position does not change. Returns null when the page does not exist.
+  Future<Uint8List?> drawPage(int page, {bool invertImages = false}) async {
+    final r = await _call('drawPage', {'page': page, 'invert': invertImages});
+    return r == null ? null : (r as TransferableTypedData).materialize().asUint8List();
+  }
 
   /// Text of the node at the XPointer, or null when it is not in the document.
   Future<String?> textAt(String xpointer, {int maxChars = 200}) async =>
@@ -213,7 +268,7 @@ class CreEngine {
     _isolate.kill(priority: Isolate.immediate);
   }
 
-  static bool _isFb2(String path) {
+  static bool isFb2Path(String path) {
     final p = path.toLowerCase();
     return p.endsWith('.fb2') || p.endsWith('.fb2.zip') || p.endsWith('.fbz');
   }
@@ -251,15 +306,30 @@ class _Worker {
         return _init(a['dataDir'] as String, a['cacheDir'] as String);
       case 'open':
         return _open(a);
-      case 'render':
-        return _render();
+      case 'setLayout':
+        _requireDoc();
+        return _relayout(() => _applyLayout(_doc, (a['layout'] as Map).cast<String, Object?>()));
+      case 'resize':
+        _requireDoc();
+        return _relayout(() {
+          _width = a['width'] as int;
+          _height = a['height'] as int;
+          _b.docResize(_doc, _width, _height);
+        });
       case 'gotoPage':
         _requireDoc();
         _b.docGotoPage(_doc, a['page'] as int);
-        return null;
+        return _position();
       case 'gotoXPointer':
         _requireDoc();
-        return _b.docGotoXPointer(_doc, a['xpointer'] as String);
+        if (!_b.docGotoXPointer(_doc, a['xpointer'] as String)) return null;
+        return _position();
+      case 'position':
+        _requireDoc();
+        return _position();
+      case 'drawPage':
+        _requireDoc();
+        return _drawPage(a['page'] as int, a['invert'] as bool);
       case 'textAt':
         _requireDoc();
         return _b.docTextAtXPointer(_doc, a['xpointer'] as String, a['max'] as int);
@@ -279,67 +349,80 @@ class _Worker {
     _dataDir = dataDir;
     Directory(cacheDir).createSync(recursive: true);
     _b.init(cacheDir, 256, '$dataDir/hyph/');
-    var fonts = 0;
     final fontDir = Directory('$dataDir/fonts');
     if (fontDir.existsSync()) {
       final files = fontDir.listSync().whereType<File>().map((f) => f.path).toList()..sort();
       for (final f in files) {
         final lower = f.toLowerCase();
-        if ((lower.endsWith('.ttf') || lower.endsWith('.otf')) && _b.registerFont(f)) fonts++;
+        if (lower.endsWith('.ttf') || lower.endsWith('.otf')) _b.registerFont(f);
       }
     }
     _b.fontsDone('Noto Serif');
-    return {'fonts': fonts, 'dom': _b.latestDomVersion()};
+    return {'faces': _b.fontFacesJson() ?? '[]', 'dom': _b.latestDomVersion()};
+  }
+
+  void _applyLayout(Pointer<CreDoc> d, Map<String, Object?> l) {
+    final m = (l['margins'] as List).cast<int>();
+    _b.docSetFontFace(d, l['fontFace'] as String);
+    _b.docSetFontSize(d, l['fontSize'] as int);
+    _b.docSetInterline(d, l['interline'] as int);
+    _b.docSetMargins(d, m[0], m[1], m[2], m[3]);
+    _b.docSetColors(d, l['bg'] as int, l['fg'] as int);
+    _b.docSetString(d, 'crengine.textlang.embedded.langs.enabled', '1');
+    _b.docSetString(d, 'crengine.textlang.hyphenation.enabled', (l['hyph'] as bool) ? '1' : '0');
+    _b.docSetInt(d, 'crengine.doc.embedded.styles.enabled', (l['embStyles'] as bool) ? 1 : 0);
+    _b.docSetInt(d, 'crengine.doc.embedded.fonts.enabled', (l['embFonts'] as bool) ? 1 : 0);
   }
 
   Object? _open(Map<String, Object?> a) {
     _close();
     _width = a['width'] as int;
     _height = a['height'] as int;
-    final layout = (a['layout'] as Map).cast<String, Object?>();
-    final margins = (layout['margins'] as List).cast<int>();
     final d = _b.docNew(_width, _height);
     _b.docApplyDefaults(d, a['dpi'] as int);
     // KOReader CreDocument:init(): fb2.css for FB2 and TXT, epub.css for the rest.
     final css = (a['isFb2'] as bool) ? 'fb2.css' : 'epub.css';
     _b.docSetStylesheet(d, '$_dataDir/css/$css', '');
-    _b.docSetFontFace(d, layout['fontFace'] as String);
-    _b.docSetFontSize(d, layout['fontSize'] as int);
-    _b.docSetInterline(d, layout['interline'] as int);
-    _b.docSetMargins(d, margins[0], margins[1], margins[2], margins[3]);
-    _b.docSetColors(d, layout['bg'] as int, layout['fg'] as int);
-    // KOReader defaults: language from the book, hyphenation on.
-    _b.docSetString(d, 'crengine.textlang.embedded.langs.enabled', '1');
-    _b.docSetString(d, 'crengine.textlang.hyphenation.enabled', '1');
+    _applyLayout(d, (a['layout'] as Map).cast<String, Object?>());
     if (!_b.docLoad(d, a['path'] as String)) {
       _b.docFree(d);
       throw EngineException('cannot open ${a['path']}');
     }
     _doc = d;
     _b.docRender(_doc);
+    final xp = a['xpointer'] as String?;
+    if (xp != null && xp.isNotEmpty) _b.docGotoXPointer(_doc, xp);
     return {
       'info': _b.docInfoJson(_doc) ?? '{}',
       'toc': _b.docTocJson(_doc) ?? '[]',
-      'pages': _b.docPageCount(_doc),
+      'pos': _position(),
     };
   }
 
-  Object? _render() {
-    _requireDoc();
-    final size = _width * _height * 4;
-    final buf = calloc<Uint8>(size);
-    try {
-      if (_b.docDraw(_doc, buf, _width, _height) != 1) throw EngineException('draw failed');
-      final pixels = TransferableTypedData.fromList([buf.asTypedList(size)]);
-      return {
+  /// Runs [change], lays the book out again, and returns to the same text.
+  Object? _relayout(void Function() change) {
+    final xp = _b.docGetXPointer(_doc);
+    change();
+    _b.docRequestRender(_doc);
+    _b.docRender(_doc);
+    if (xp != null) _b.docGotoXPointer(_doc, xp);
+    return {'toc': _b.docTocJson(_doc) ?? '[]', 'pos': _position()};
+  }
+
+  Map<String, Object?> _position() => {
         'page': _b.docCurrentPage(_doc),
         'pages': _b.docPageCount(_doc),
         'percent': _b.docPercent(_doc),
         'xpointer': _b.docGetXPointer(_doc),
-        'w': _width,
-        'h': _height,
-        'rgba': pixels,
       };
+
+  Object? _drawPage(int page, bool invertImages) {
+    final size = _width * _height * 4;
+    final buf = calloc<Uint8>(size);
+    try {
+      final flags = invertImages ? kDrawInvertImages : 0;
+      if (_b.docDrawPage(_doc, page, buf, _width, _height, flags) != 1) return null;
+      return TransferableTypedData.fromList([buf.asTypedList(size)]);
     } finally {
       calloc.free(buf);
     }

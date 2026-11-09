@@ -10,7 +10,11 @@ import 'package:ffi/ffi.dart';
 final class CreDoc extends Opaque {}
 
 /// The C interface version this file is written for (CRE_FFI_VERSION).
-const int kCreFfiVersion = 1;
+const int kCreFfiVersion = 2;
+
+/// cre_doc_draw_page() flag: invert images (for the dark theme, which
+/// inverts the whole page afterwards).
+const int kDrawInvertImages = 1;
 
 class CreBindings {
   CreBindings(DynamicLibrary lib)
@@ -71,6 +75,12 @@ class CreBindings {
             Pointer<Utf8> Function(Pointer<CreDoc>)>('cre_doc_toc_json'),
         docDraw = lib.lookupFunction<Int32 Function(Pointer<CreDoc>, Pointer<Uint8>, Int32, Int32),
             int Function(Pointer<CreDoc>, Pointer<Uint8>, int, int)>('cre_doc_draw'),
+        docDrawPage = lib.lookupFunction<Int32 Function(Pointer<CreDoc>, Int32, Pointer<Uint8>, Int32, Int32, Int32),
+            int Function(Pointer<CreDoc>, int, Pointer<Uint8>, int, int, int)>('cre_doc_draw_page'),
+        docRequestRender = lib.lookupFunction<Void Function(Pointer<CreDoc>), void Function(Pointer<CreDoc>)>(
+            'cre_doc_request_render'),
+        _fontFacesJson = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
+            'cre_font_faces_json'),
         _free = lib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('cre_free');
 
   /// Opens the native library for the current platform.
@@ -110,7 +120,12 @@ class CreBindings {
   final Pointer<Utf8> Function(Pointer<CreDoc>) _docInfoJson;
   final Pointer<Utf8> Function(Pointer<CreDoc>) _docTocJson;
   final int Function(Pointer<CreDoc>, Pointer<Uint8>, int, int) docDraw;
+  final int Function(Pointer<CreDoc>, int, Pointer<Uint8>, int, int, int) docDrawPage;
+  final void Function(Pointer<CreDoc>) docRequestRender;
+  final Pointer<Utf8> Function() _fontFacesJson;
   final void Function(Pointer<Void>) _free;
+
+  String? fontFacesJson() => _take(_fontFacesJson());
 
   /// Converts a native string that the caller owns, then frees it.
   String? _take(Pointer<Utf8> p) {
