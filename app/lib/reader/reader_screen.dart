@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_services.dart';
+import '../sync/kosync_settings_screen.dart';
 import 'reader_controller.dart';
 import 'tap_zones.dart';
 import 'widgets/goto_dialog.dart';
@@ -26,6 +27,7 @@ class ReaderScreen extends StatefulWidget {
 class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   ReaderController? _controller;
+  StreamSubscription<SyncEvent>? _syncSub;
   bool _showBars = false;
 
   @override
@@ -38,12 +40,39 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _controller ??= ReaderController(services: ServicesScope.of(context), path: widget.path);
+    if (_controller == null) {
+      final c = ReaderController(services: ServicesScope.of(context), path: widget.path);
+      _controller = c;
+      _syncSub = c.syncEvents.listen(_onSyncEvent);
+    }
+  }
+
+  Future<void> _onSyncEvent(SyncEvent e) async {
+    if (!mounted) return;
+    switch (e) {
+      case SyncMessage(:final text):
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(text), duration: const Duration(seconds: 3)));
+      case SyncQuestion(:final text, :final xpointer):
+        final yes = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            content: Text(text),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('OK')),
+            ],
+          ),
+        );
+        if (yes == true) await _controller?.gotoXPointer(xpointer);
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _syncSub?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _controller?.dispose();
     super.dispose();
@@ -51,8 +80,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      unawaited(_controller?.saveNow());
+    switch (state) {
+      case AppLifecycleState.paused:
+        _controller?.onPause();
+      case AppLifecycleState.inactive:
+        unawaited(_controller?.saveNow());
+      case AppLifecycleState.resumed:
+        _controller?.onResume();
+      default:
+        break;
     }
   }
 
@@ -198,11 +234,27 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               tooltip: 'More',
               onSelected: (v) {
                 _setBars(false);
-                if (v == 'goto') _goto();
-                if (v == 'info') showPositionInfo(context, c);
+                switch (v) {
+                  case 'goto':
+                    _goto();
+                  case 'push':
+                    c.pushProgress(interactive: true);
+                  case 'pull':
+                    c.pullProgress(interactive: true);
+                  case 'sync':
+                    Navigator.of(context)
+                        .push(MaterialPageRoute<void>(builder: (_) => const KoSyncSettingsScreen()));
+                  case 'info':
+                    showPositionInfo(context, c);
+                }
               },
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'goto', child: Text('Go to page')),
+                PopupMenuDivider(),
+                PopupMenuItem(value: 'push', child: Text('Push progress from this device')),
+                PopupMenuItem(value: 'pull', child: Text('Pull progress from other devices')),
+                PopupMenuItem(value: 'sync', child: Text('Progress sync settings')),
+                PopupMenuDivider(),
                 PopupMenuItem(value: 'info', child: Text('Position info')),
               ],
             ),

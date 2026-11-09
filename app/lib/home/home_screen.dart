@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../app_services.dart';
 import '../data/database.dart';
 import '../reader/reader_screen.dart';
+import '../sync/kosync_settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -63,6 +64,12 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Books'),
         actions: [
+          IconButton(
+            tooltip: 'Progress sync',
+            icon: const Icon(Icons.sync),
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute<void>(builder: (_) => const KoSyncSettingsScreen())),
+          ),
           PopupMenuButton<String>(
             tooltip: 'Sample books',
             icon: const Icon(Icons.science_outlined),
