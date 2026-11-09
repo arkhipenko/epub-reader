@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+<description>
+<title-info>
+<genre>prose_contemporary</genre>
+<author><first-name>Test</first-name><last-name>Sample</last-name></author>
+<book-title>Паром. The Ferry (FB2 test sample)</book-title>
+<lang>ru</lang>
+</title-info>
+<document-info><author><nickname>epub-reader</nickname></author><date>2026-11-09</date><id>epub-reader-sample-fb2-1</id><version>1.0</version></document-info>
+</description>
+<body>
+<title><p>Паром</p><p>The Ferry</p></title>
+<epigraph><p>Река не спешит, но всегда успевает.</p></epigraph>
+<section><title><p>Глава 1. Chapter 1</p></title>
+<p>Старый паром стоял у берега, и паромщик, не торопясь, проверял канаты, будто от этого зависела судьба всего города.</p>
+<p>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all. <a l:href="#n1" type="note">[1]</a></p>
+<p>Никто не знал, сколько ему лет. Говорили, что он помнит время, когда моста ещё не было и в помине.</p>
+<p><emphasis>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</emphasis></p>
+<p>Дети приходили смотреть на воду и спрашивали, куда она течёт. Он отвечал, что в море, а море никуда не течёт, оно ждёт.</p>
+<p>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</p>
+<p>Утро начиналось медленно: сначала посветлело небо над рекой, потом на крышах заблестела роса.</p>
+<p>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all.</p>
+<p>Старый паром стоял у берега, и паромщик, не торопясь, проверял канаты, будто от этого зависела судьба всего города.</p>
+<p>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</p>
+<p>Никто не знал, сколько ему лет. Говорили, что он помнит время, когда моста ещё не было и в помине.</p>
+<p>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</p>
+</section>
+<section><title><p>Глава 2. Chapter 2</p></title>
+<p>Никто не знал, сколько ему лет. Говорили, что он помнит время, когда моста ещё не было и в помине.</p>
+<p>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</p>
+<p>Дети приходили смотреть на воду и спрашивали, куда она течёт. Он отвечал, что в море, а море никуда не течёт, оно ждёт.</p>
+<p><emphasis>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</emphasis></p>
+<p>Утро начиналось медленно: сначала посветлело небо над рекой, потом на крышах заблестела роса.</p>
+<p>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all.</p>
+<p>Старый паром стоял у берега, и паромщик, не торопясь, проверял канаты, будто от этого зависела судьба всего города.</p>
+<p>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</p>
+<p>Никто не знал, сколько ему лет. Говорили, что он помнит время, когда моста ещё не было и в помине.</p>
+<p>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</p>
+<p>Дети приходили смотреть на воду и спрашивали, куда она течёт. Он отвечал, что в море, а море никуда не течёт, оно ждёт.</p>
+<p>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all.</p>
+<section><title><p>Глава 2.1</p></title>
+<p>Никто не знал, сколько ему лет. Говорили, что он помнит время, когда моста ещё не было и в помине.</p>
+<p>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</p>
+<p>Дети приходили смотреть на воду и спрашивали, куда она течёт. Он отвечал, что в море, а море никуда не течёт, оно ждёт.</p>
+<p><emphasis>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</emphasis></p>
+</section>
+</section>
+<section><title><p>Глава 3. Chapter 3</p></title>
+<p>Дети приходили смотреть на воду и спрашивали, куда она течёт. Он отвечал, что в море, а море никуда не течёт, оно ждёт.</p>
+<p>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</p>
+<p>Утро начиналось медленно: сначала посветлело небо над рекой, потом на крышах заблестела роса.</p>
+<p><emphasis>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all.</emphasis></p>
+<p>Старый паром стоял у берега, и паромщик, не торопясь, проверял канаты, будто от этого зависела судьба всего города.</p>
+<p>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</p>
+<p>Никто не знал, сколько ему лет. Говорили, что он помнит время, когда моста ещё не было и в помине.</p>
+<p>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</p>
+<p>Дети приходили смотреть на воду и спрашивали, куда она течёт. Он отвечал, что в море, а море никуда не течёт, оно ждёт.</p>
+<p>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all.</p>
+<p>Утро начиналось медленно: сначала посветлело небо над рекой, потом на крышах заблестела роса.</p>
+<p>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</p>
+</section>
+<section><title><p>Глава 4. Chapter 4</p></title>
+<p>Утро начиналось медленно: сначала посветлело небо над рекой, потом на крышах заблестела роса.</p>
+<p>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all.</p>
+<p>Старый паром стоял у берега, и паромщик, не торопясь, проверял канаты, будто от этого зависела судьба всего города.</p>
+<p><emphasis>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</emphasis></p>
+<p>Никто не знал, сколько ему лет. Говорили, что он помнит время, когда моста ещё не было и в помине.</p>
+<p>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</p>
+<p>Дети приходили смотреть на воду и спрашивали, куда она течёт. Он отвечал, что в море, а море никуда не течёт, оно ждёт.</p>
+<p>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all.</p>
+<p>Утро начиналось медленно: сначала посветлело небо над рекой, потом на крышах заблестела роса.</p>
+<p>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</p>
+<p>Старый паром стоял у берега, и паромщик, не торопясь, проверял канаты, будто от этого зависела судьба всего города.</p>
+<p>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</p>
+<section><title><p>Глава 4.1</p></title>
+<p>Утро начиналось медленно: сначала посветлело небо над рекой, потом на крышах заблестела роса.</p>
+<p>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all.</p>
+<p>Старый паром стоял у берега, и паромщик, не торопясь, проверял канаты, будто от этого зависела судьба всего города.</p>
+<p><emphasis>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</emphasis></p>
+</section>
+</section>
+<section><title><p>Глава 5. Chapter 5</p></title>
+<p>Старый паром стоял у берега, и паромщик, не торопясь, проверял канаты, будто от этого зависела судьба всего города.</p>
+<p>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</p>
+<p>Никто не знал, сколько ему лет. Говорили, что он помнит время, когда моста ещё не было и в помине.</p>
+<p><emphasis>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</emphasis></p>
+<p>Дети приходили смотреть на воду и спрашивали, куда она течёт. Он отвечал, что в море, а море никуда не течёт, оно ждёт.</p>
+<p>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all.</p>
+<p>Утро начиналось медленно: сначала посветлело небо над рекой, потом на крышах заблестела роса.</p>
+<p>Nobody spoke. The goat chewed its rope; the teacher counted the books twice and got a different number each time.</p>
+<p>Старый паром стоял у берега, и паромщик, не торопясь, проверял канаты, будто от этого зависела судьба всего города.</p>
+<p>The ferry left at seven, as it always did, carrying three carts, a goat, and a schoolteacher with a crate of books.</p>
+<p>Никто не знал, сколько ему лет. Говорили, что он помнит время, когда моста ещё не было и в помине.</p>
+<p>Halfway across, the fog came down so thick that the far bank vanished, and for a while the river seemed to have no end at all.</p>
+</section>
+</body>
+<body name="notes">
+<section id="n1"><title><p>1</p></title><p>Footnote text: the ferry was built before the bridge.</p></section>
+</body>
+</FictionBook>

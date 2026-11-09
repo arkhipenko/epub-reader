@@ -1,0 +1,19 @@
+# Store text with LF in the repository and check it out with LF on all hosts.
+# The repository is edited from WSL and built from Windows.
+* text=auto eol=lf
+
+# Windows scripts keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files.
+*.png binary
+*.jpg binary
+*.ttf binary
+*.otf binary
+*.epub binary
+*.fb2 binary
+*.so binary
+*.a binary
+*.jar binary
