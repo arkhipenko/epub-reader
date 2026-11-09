@@ -125,6 +125,29 @@ class OpenResult {
   final List<TocEntry> toc;
 }
 
+/// Library metadata of a book file (KOReader BookInfoManager data).
+class BookFileInfo {
+  const BookFileInfo({
+    required this.title,
+    required this.authors,
+    required this.language,
+    required this.series,
+    required this.seriesNumber,
+    required this.description,
+    required this.format,
+    required this.hasCover,
+  });
+
+  final String title;
+  final String authors;
+  final String language;
+  final String series;
+  final int seriesNumber;
+  final String description;
+  final String format;
+  final bool hasCover;
+}
+
 class EngineException implements Exception {
   EngineException(this.message);
 
@@ -263,6 +286,25 @@ class CreEngine {
 
   Future<void> closeBook() => _call('close');
 
+  /// Reads library metadata without opening the book for reading. Writes
+  /// the cover image to [coverOut] when there is one. Returns null when the
+  /// engine cannot read the file.
+  Future<BookFileInfo?> bookInfo(String path, String coverOut) async {
+    final r = await _call('bookInfo', {'path': path, 'cover': coverOut});
+    if (r == null) return null;
+    final j = jsonDecode(r as String) as Map<String, dynamic>;
+    return BookFileInfo(
+      title: j['title'] as String,
+      authors: j['authors'] as String,
+      language: j['language'] as String,
+      series: j['series'] as String,
+      seriesNumber: j['seriesNumber'] as int,
+      description: j['description'] as String,
+      format: j['format'] as String,
+      hasCover: j['cover'] as bool,
+    );
+  }
+
   void dispose() {
     _fromWorker.close();
     _isolate.kill(priority: Isolate.immediate);
@@ -336,6 +378,8 @@ class _Worker {
       case 'close':
         _close();
         return null;
+      case 'bookInfo':
+        return _b.bookInfo(a['path'] as String, a['cover'] as String);
     }
     throw EngineException('unknown operation $op');
   }

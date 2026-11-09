@@ -3,24 +3,35 @@ import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/widgets.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'data/database.dart';
 import 'engine/cre_engine.dart';
 import 'engine/engine_assets.dart';
+import 'library/library_scanner.dart';
+import 'library/library_settings.dart';
 import 'reader/reader_settings.dart';
 import 'sync/kosync_service.dart';
 
 class AppServices {
-  AppServices._(this.db, this.engine, this.settings, this.kosync);
+  AppServices._(this.db, this.engine, this.settings, this.kosync, this.library, this.scanner, this.booksDir);
 
   final AppDatabase db;
   final CreEngine engine;
   final KoSyncService kosync;
 
+  /// Library folders, view and sort.
+  final ValueNotifier<LibrarySettings> library;
+  final LibraryScanner scanner;
+
+  /// The app's own folder for books opened with the file picker.
+  final String booksDir;
+
   /// Current reading settings. The reader listens to this.
   final ValueNotifier<ReaderSettings> settings;
 
   static const String _settingsKey = 'reader_settings';
+  static const String _libraryKey = 'library_settings';
 
   static Future<AppServices> start() async {
     final db = AppDatabase();
@@ -30,7 +41,23 @@ class AppServices {
     final kosync = await KoSyncService.create(db, deviceModel: await _deviceModel());
     // Send progress that was queued while offline.
     kosync.drainQueue().ignore();
-    return AppServices._(db, engine, ValueNotifier(settings), kosync);
+    final docs = await getApplicationDocumentsDirectory();
+    final support = await getApplicationSupportDirectory();
+    final booksDir = '${docs.path}/books';
+    await Directory(booksDir).create(recursive: true);
+    final library = LibrarySettings.decode(await db.readPref(_libraryKey));
+    final scanner = LibraryScanner(
+      db: db,
+      engine: engine,
+      coversDir: '${support.path}/covers',
+      internalBooksDir: booksDir,
+    );
+    return AppServices._(db, engine, ValueNotifier(settings), kosync, ValueNotifier(library), scanner, booksDir);
+  }
+
+  Future<void> updateLibrary(LibrarySettings value) async {
+    library.value = value;
+    await db.writePref(_libraryKey, value.encode());
   }
 
   /// Device model, as KOReader sends it (Device.model).

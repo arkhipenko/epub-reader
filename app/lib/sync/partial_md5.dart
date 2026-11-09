@@ -43,3 +43,20 @@ Future<String> partialMd5OfFile(String path) async {
     await raf.close();
   }
 }
+
+/// Same as [partialMd5OfFile], synchronous (for use in a background isolate).
+String partialMd5OfFileSync(String path) {
+  final raf = File(path).openSync();
+  try {
+    final length = raf.lengthSync();
+    final builder = BytesBuilder(copy: false);
+    for (final offset in partialMd5Offsets()) {
+      if (offset >= length) break;
+      raf.setPositionSync(offset);
+      builder.add(raf.readSync(_size));
+    }
+    return md5.convert(builder.takeBytes()).toString();
+  } finally {
+    raf.closeSync();
+  }
+}

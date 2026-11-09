@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_services.dart';
-import 'home/home_screen.dart';
+import 'library/library_screen.dart';
 import 'reader/reader_settings.dart';
 import 'reader/reader_theme.dart';
 
@@ -70,10 +70,10 @@ class _EpubReaderAppState extends State<EpubReaderApp> {
           child: ValueListenableBuilder<ReaderSettings>(
             valueListenable: services.settings,
             builder: (context, settings, _) => MaterialApp(
-              title: 'epub-reader',
+              title: 'KOReader',
               debugShowCheckedModeBanner: false,
               theme: _theme(settings.accentId),
-              home: const HomeScreen(),
+              home: const LibraryScreen(),
             ),
           ),
         );

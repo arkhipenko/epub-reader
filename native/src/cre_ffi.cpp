@@ -99,6 +99,62 @@ void cre_fonts_done(const char *default_face) {
 
 int cre_latest_dom_version(void) { return gDOMVersionCurrent; }
 
+// Writes the cover stream of the loaded document to `out`. Returns true on success.
+static bool write_cover(LVDocView *v, const char *out) {
+    LVStreamRef stream = v->getCoverPageImageStream();
+    if (stream.isNull()) return false;
+    lvsize_t size = stream->GetSize();
+    if (size == 0) return false;
+    uint8_t *buf = (uint8_t *)malloc(size);
+    if (!buf) return false;
+    lvsize_t read = 0;
+    bool ok = stream->Read(buf, size, &read) == LVERR_OK && read == size;
+    if (ok) {
+        FILE *f = fopen(out, "wb");
+        ok = f != NULL && fwrite(buf, 1, size, f) == size;
+        if (f) fclose(f);
+    }
+    free(buf);
+    return ok;
+}
+
+char *cre_book_info(const char *path, const char *cover_out) {
+    if (!path) return NULL;
+    LVDocView *v = new LVDocView(-1, true);
+    lString32 upath = Utf8ToUnicode(path);
+    // KOReader BookInfoManager: loadDocument(false) loads the metadata only.
+    if (!v->LoadDocument(upath.c_str(), true)) {
+        delete v;
+        return NULL;
+    }
+    bool cover = false;
+    if (cover_out && cover_out[0]) {
+        cover = write_cover(v, cover_out);
+        if (!cover && v->getDocFormat() == doc_format_fb2) {
+            // An FB2 cover is a <binary> element after the text, which a
+            // metadata-only load does not read. Load the whole file.
+            if (v->LoadDocument(upath.c_str(), false)) cover = write_cover(v, cover_out);
+        }
+    }
+    lString8 out("{\"title\":");
+    json_escape(out, v->getTitle());
+    out << ",\"authors\":";
+    json_escape(out, v->getAuthors());
+    out << ",\"language\":";
+    json_escape(out, v->getLanguage());
+    out << ",\"series\":";
+    json_escape(out, v->getSeriesName());
+    out << ",\"seriesNumber\":" << lString8::itoa(v->getSeriesNumber());
+    out << ",\"description\":";
+    json_escape(out, v->getDescription());
+    out << ",\"format\":";
+    json_escape(out, lString32(getDocFormatName(v->getDocFormat())));
+    out << ",\"cover\":" << (cover ? "true" : "false") << "}";
+    v->close();
+    delete v;
+    return dup_str(out);
+}
+
 int cre_normalized_xpointers_dom_version(void) { return DOM_VERSION_WITH_NORMALIZED_XPOINTERS; }
 
 CreDoc *cre_doc_new(int width, int height) {

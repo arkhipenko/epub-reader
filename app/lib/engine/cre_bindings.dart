@@ -10,7 +10,7 @@ import 'package:ffi/ffi.dart';
 final class CreDoc extends Opaque {}
 
 /// The C interface version this file is written for (CRE_FFI_VERSION).
-const int kCreFfiVersion = 2;
+const int kCreFfiVersion = 3;
 
 /// cre_doc_draw_page() flag: invert images (for the dark theme, which
 /// inverts the whole page afterwards).
@@ -81,6 +81,8 @@ class CreBindings {
             'cre_doc_request_render'),
         _fontFacesJson = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
             'cre_font_faces_json'),
+        _bookInfo = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>),
+            Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>('cre_book_info'),
         _free = lib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('cre_free');
 
   /// Opens the native library for the current platform.
@@ -123,7 +125,12 @@ class CreBindings {
   final int Function(Pointer<CreDoc>, int, Pointer<Uint8>, int, int, int) docDrawPage;
   final void Function(Pointer<CreDoc>) docRequestRender;
   final Pointer<Utf8> Function() _fontFacesJson;
+  final Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>) _bookInfo;
   final void Function(Pointer<Void>) _free;
+
+  /// Metadata JSON for the library, and the cover written to [coverOut].
+  String? bookInfo(String path, String coverOut) =>
+      using((a) => _take(_bookInfo(path.toNativeUtf8(allocator: a), coverOut.toNativeUtf8(allocator: a))));
 
   String? fontFacesJson() => _take(_fontFacesJson());
 

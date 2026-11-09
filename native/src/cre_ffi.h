@@ -20,7 +20,7 @@ extern "C" {
 #define CRE_API __attribute__((visibility("default")))
 
 /* Version of this C interface. Increase it when a signature changes. */
-#define CRE_FFI_VERSION 2
+#define CRE_FFI_VERSION 3
 
 /* Flags for cre_doc_draw_page(). */
 #define CRE_DRAW_INVERT_IMAGES 1
@@ -38,6 +38,15 @@ CRE_API int cre_latest_dom_version(void);
 CRE_API int cre_normalized_xpointers_dom_version(void);
 /* JSON array of the registered font face names, sorted. */
 CRE_API char *cre_font_faces_json(void);
+
+/* Book metadata for the library, without opening the book for reading.
+ * Returns JSON {title, authors, language, series, seriesNumber, format,
+ * description, cover} or NULL when the engine cannot read the file.
+ * When cover_out is not NULL and the book has a cover image, the image file
+ * (JPEG, PNG, GIF or SVG, as stored in the book) is written there and
+ * "cover" is true. Uses its own view, so a book open for reading is not
+ * affected (as KOReader BookInfoManager). */
+CRE_API char *cre_book_info(const char *path, const char *cover_out);
 
 /* Document view. */
 CRE_API CreDoc *cre_doc_new(int width, int height);

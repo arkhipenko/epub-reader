@@ -24,6 +24,25 @@ class Books extends Table {
   DateTimeColumn get addedAt => dateTime()();
   DateTimeColumn get lastOpenedAt => dateTime().nullable()();
 
+  // Schema 2: library.
+  TextColumn get series => text().withDefault(const Constant(''))();
+  IntColumn get seriesNumber => integer().withDefault(const Constant(0))();
+  TextColumn get description => text().withDefault(const Constant(''))();
+
+  /// Cover image file in app storage, or null when the book has none.
+  TextColumn get coverPath => text().nullable()();
+
+  /// File size and modification time at the last scan. Null: never scanned.
+  IntColumn get fileSize => integer().nullable()();
+  DateTimeColumn get fileModified => dateTime().nullable()();
+  BoolColumn get favorite => boolean().withDefault(const Constant(false))();
+
+  /// Set when the book is in "Deleted" (Koodo trash).
+  DateTimeColumn get deletedAt => dateTime().nullable()();
+
+  /// The file was not found at the last scan.
+  BoolColumn get missing => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
@@ -37,22 +56,91 @@ class Prefs extends Table {
   Set<Column<Object>> get primaryKey => {key};
 }
 
-@DriftDatabase(tables: [Books, Prefs])
+@DataClassName('Shelf')
+class Shelves extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get name => text()();
+  DateTimeColumn get createdAt => dateTime()();
+}
+
+class ShelfBooks extends Table {
+  IntColumn get shelfId => integer().references(Shelves, #id, onDelete: KeyAction.cascade)();
+  TextColumn get bookId => text().references(Books, #id, onDelete: KeyAction.cascade)();
+
+  @override
+  Set<Column<Object>> get primaryKey => {shelfId, bookId};
+}
+
+class OpdsCatalogs extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get title => text()();
+  TextColumn get url => text()();
+  TextColumn get username => text().nullable()();
+
+  /// Stored in the app database (personal use, private app storage).
+  TextColumn get password => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+}
+
+@DriftDatabase(tables: [Books, Prefs, Shelves, ShelfBooks, OpdsCatalogs])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? driftDatabase(name: 'epub_reader'));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) async {
+          await m.createAll();
+          await _seedCatalogs();
+        },
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.addColumn(books, books.series);
+            await m.addColumn(books, books.seriesNumber);
+            await m.addColumn(books, books.description);
+            await m.addColumn(books, books.coverPath);
+            await m.addColumn(books, books.fileSize);
+            await m.addColumn(books, books.fileModified);
+            await m.addColumn(books, books.favorite);
+            await m.addColumn(books, books.deletedAt);
+            await m.addColumn(books, books.missing);
+            await m.createTable(shelves);
+            await m.createTable(shelfBooks);
+            await m.createTable(opdsCatalogs);
+            await _seedCatalogs();
+          }
+        },
+        beforeOpen: (details) async {
+          await customStatement('PRAGMA foreign_keys = ON');
+        },
+      );
+
+  /// The home calibre-web catalog (on omega).
+  Future<void> _seedCatalogs() => into(opdsCatalogs).insert(OpdsCatalogsCompanion.insert(
+        title: 'Home library (calibre-web)',
+        url: 'http://books.home.lan:8083/opds',
+        createdAt: DateTime.now(),
+      ));
+
+  // ---- Books ----
 
   Future<Book?> bookById(String id) => (select(books)..where((b) => b.id.equals(id))).getSingleOrNull();
 
+  Future<List<Book>> allBooks() => select(books).get();
+
   /// Books by last opened time, newest first.
   Stream<List<Book>> watchRecentBooks() => (select(books)
-        ..where((b) => b.lastOpenedAt.isNotNull())
+        ..where((b) => b.lastOpenedAt.isNotNull() & b.deletedAt.isNull())
         ..orderBy([(b) => OrderingTerm.desc(b.lastOpenedAt)]))
       .watch();
 
-  /// Creates the book row, or updates its path and metadata.
+  /// All books that are not missing. The library filters and sorts them.
+  Stream<List<Book>> watchLibrary() => (select(books)..where((b) => b.missing.equals(false))).watch();
+
+  /// Creates the book row when a book is opened, or updates its path and
+  /// metadata.
   Future<void> upsertBook({
     required String id,
     required String path,
@@ -82,7 +170,20 @@ class AppDatabase extends _$AppDatabase {
         format: Value(format),
         language: Value(language),
         lastOpenedAt: Value(now),
+        missing: const Value(false),
       ));
+    }
+  }
+
+  /// Writes the data of a scanned file. A new book is added without
+  /// lastOpenedAt, so it does not show in the history.
+  Future<void> saveScannedBook(BooksCompanion data) async {
+    final id = data.id.value;
+    final existing = await bookById(id);
+    if (existing == null) {
+      await into(books).insert(data.copyWith(addedAt: Value(DateTime.now())));
+    } else {
+      await (update(books)..where((b) => b.id.equals(id))).write(data);
     }
   }
 
@@ -90,7 +191,63 @@ class AppDatabase extends _$AppDatabase {
       (update(books)..where((b) => b.id.equals(id)))
           .write(BooksCompanion(lastXPointer: Value(xpointer), progress: Value(progress)));
 
+  Future<void> setFavorite(String id, bool value) =>
+      (update(books)..where((b) => b.id.equals(id))).write(BooksCompanion(favorite: Value(value)));
+
+  /// Moves the book to "Deleted" (null restores it).
+  Future<void> setDeleted(String id, DateTime? at) =>
+      (update(books)..where((b) => b.id.equals(id))).write(BooksCompanion(deletedAt: Value(at)));
+
+  Future<void> setMissing(Iterable<String> ids, bool value) =>
+      (update(books)..where((b) => b.id.isIn(ids))).write(BooksCompanion(missing: Value(value)));
+
   Future<void> deleteBook(String id) => (delete(books)..where((b) => b.id.equals(id))).go();
+
+  // ---- Shelves ----
+
+  Stream<List<Shelf>> watchShelves() => (select(shelves)..orderBy([(s) => OrderingTerm.asc(s.name)])).watch();
+
+  Future<int> addShelf(String name) =>
+      into(shelves).insert(ShelvesCompanion.insert(name: name, createdAt: DateTime.now()));
+
+  Future<void> renameShelf(int id, String name) =>
+      (update(shelves)..where((s) => s.id.equals(id))).write(ShelvesCompanion(name: Value(name)));
+
+  Future<void> deleteShelf(int id) => (delete(shelves)..where((s) => s.id.equals(id))).go();
+
+  /// Book ids per shelf id.
+  Stream<Map<int, Set<String>>> watchShelfBooks() => select(shelfBooks).watch().map((rows) {
+        final m = <int, Set<String>>{};
+        for (final r in rows) {
+          m.putIfAbsent(r.shelfId, () => {}).add(r.bookId);
+        }
+        return m;
+      });
+
+  Future<void> setOnShelf(int shelfId, String bookId, bool on) async {
+    if (on) {
+      await into(shelfBooks).insertOnConflictUpdate(ShelfBooksCompanion.insert(shelfId: shelfId, bookId: bookId));
+    } else {
+      await (delete(shelfBooks)..where((r) => r.shelfId.equals(shelfId) & r.bookId.equals(bookId))).go();
+    }
+  }
+
+  // ---- OPDS catalogs ----
+
+  Stream<List<OpdsCatalog>> watchCatalogs() =>
+      (select(opdsCatalogs)..orderBy([(c) => OrderingTerm.asc(c.title)])).watch();
+
+  Future<void> saveCatalog(OpdsCatalogsCompanion c) async {
+    if (c.id.present) {
+      await (update(opdsCatalogs)..where((x) => x.id.equals(c.id.value))).write(c);
+    } else {
+      await into(opdsCatalogs).insert(c.copyWith(createdAt: Value(DateTime.now())));
+    }
+  }
+
+  Future<void> deleteCatalog(int id) => (delete(opdsCatalogs)..where((c) => c.id.equals(id))).go();
+
+  // ---- Prefs ----
 
   Future<String?> readPref(String key) async =>
       (await (select(prefs)..where((p) => p.key.equals(key))).getSingleOrNull())?.value;

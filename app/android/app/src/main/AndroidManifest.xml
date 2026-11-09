@@ -1,11 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Progress sync (kosync) and, later, OPDS catalogs. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Library folders are read in place by path (crengine needs a path).
+         Android 11 and later: "All files access". Android 8 to 10: storage permission. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>
     <application
-        android:label="epub-reader"
+        android:label="KOReader"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        android:requestLegacyExternalStorage="true">
         <!-- usesCleartextTraffic: the home sync server and calibre-web are plain HTTP on the LAN. -->
         <activity
             android:name=".MainActivity"
