@@ -119,30 +119,30 @@ class AppDatabase extends _$AppDatabase {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) => m.createAll(),
-        onUpgrade: (m, from, to) async {
-          if (from < 2) {
-            await m.addColumn(books, books.series);
-            await m.addColumn(books, books.seriesNumber);
-            await m.addColumn(books, books.description);
-            await m.addColumn(books, books.coverPath);
-            await m.addColumn(books, books.fileSize);
-            await m.addColumn(books, books.fileModified);
-            await m.addColumn(books, books.favorite);
-            await m.addColumn(books, books.deletedAt);
-            await m.addColumn(books, books.missing);
-            await m.createTable(shelves);
-            await m.createTable(shelfBooks);
-            await m.createTable(opdsCatalogs);
-          }
-          if (from < 3) {
-            await m.createTable(annotations);
-          }
-        },
-        beforeOpen: (details) async {
-          await customStatement('PRAGMA foreign_keys = ON');
-        },
-      );
+    onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(books, books.series);
+        await m.addColumn(books, books.seriesNumber);
+        await m.addColumn(books, books.description);
+        await m.addColumn(books, books.coverPath);
+        await m.addColumn(books, books.fileSize);
+        await m.addColumn(books, books.fileModified);
+        await m.addColumn(books, books.favorite);
+        await m.addColumn(books, books.deletedAt);
+        await m.addColumn(books, books.missing);
+        await m.createTable(shelves);
+        await m.createTable(shelfBooks);
+        await m.createTable(opdsCatalogs);
+      }
+      if (from < 3) {
+        await m.createTable(annotations);
+      }
+    },
+    beforeOpen: (details) async {
+      await customStatement('PRAGMA foreign_keys = ON');
+    },
+  );
 
   // ---- Books ----
 
@@ -151,10 +151,11 @@ class AppDatabase extends _$AppDatabase {
   Future<List<Book>> allBooks() => select(books).get();
 
   /// Books by last opened time, newest first.
-  Stream<List<Book>> watchRecentBooks() => (select(books)
-        ..where((b) => b.lastOpenedAt.isNotNull() & b.deletedAt.isNull())
-        ..orderBy([(b) => OrderingTerm.desc(b.lastOpenedAt)]))
-      .watch();
+  Stream<List<Book>> watchRecentBooks() =>
+      (select(books)
+            ..where((b) => b.lastOpenedAt.isNotNull() & b.deletedAt.isNull())
+            ..orderBy([(b) => OrderingTerm.desc(b.lastOpenedAt)]))
+          .watch();
 
   /// All books that are not missing. The library filters and sorts them.
   Stream<List<Book>> watchLibrary() => (select(books)..where((b) => b.missing.equals(false))).watch();
@@ -172,26 +173,30 @@ class AppDatabase extends _$AppDatabase {
     final existing = await bookById(id);
     final now = DateTime.now();
     if (existing == null) {
-      await into(books).insert(BooksCompanion.insert(
-        id: id,
-        path: path,
-        title: Value(title),
-        authors: Value(authors),
-        format: Value(format),
-        language: Value(language),
-        addedAt: now,
-        lastOpenedAt: Value(now),
-      ));
+      await into(books).insert(
+        BooksCompanion.insert(
+          id: id,
+          path: path,
+          title: Value(title),
+          authors: Value(authors),
+          format: Value(format),
+          language: Value(language),
+          addedAt: now,
+          lastOpenedAt: Value(now),
+        ),
+      );
     } else {
-      await (update(books)..where((b) => b.id.equals(id))).write(BooksCompanion(
-        path: Value(path),
-        title: Value(title),
-        authors: Value(authors),
-        format: Value(format),
-        language: Value(language),
-        lastOpenedAt: Value(now),
-        missing: const Value(false),
-      ));
+      await (update(books)..where((b) => b.id.equals(id))).write(
+        BooksCompanion(
+          path: Value(path),
+          title: Value(title),
+          authors: Value(authors),
+          format: Value(format),
+          language: Value(language),
+          lastOpenedAt: Value(now),
+          missing: const Value(false),
+        ),
+      );
     }
   }
 
@@ -207,9 +212,9 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 
-  Future<void> savePosition(String id, String xpointer, double progress) =>
-      (update(books)..where((b) => b.id.equals(id)))
-          .write(BooksCompanion(lastXPointer: Value(xpointer), progress: Value(progress)));
+  Future<void> savePosition(String id, String xpointer, double progress) => (update(
+    books,
+  )..where((b) => b.id.equals(id))).write(BooksCompanion(lastXPointer: Value(xpointer), progress: Value(progress)));
 
   Future<void> setFavorite(String id, bool value) =>
       (update(books)..where((b) => b.id.equals(id))).write(BooksCompanion(favorite: Value(value)));
@@ -237,12 +242,12 @@ class AppDatabase extends _$AppDatabase {
 
   /// Book ids per shelf id.
   Stream<Map<int, Set<String>>> watchShelfBooks() => select(shelfBooks).watch().map((rows) {
-        final m = <int, Set<String>>{};
-        for (final r in rows) {
-          m.putIfAbsent(r.shelfId, () => {}).add(r.bookId);
-        }
-        return m;
-      });
+    final m = <int, Set<String>>{};
+    for (final r in rows) {
+      m.putIfAbsent(r.shelfId, () => {}).add(r.bookId);
+    }
+    return m;
+  });
 
   Future<void> setOnShelf(int shelfId, String bookId, bool on) async {
     if (on) {
@@ -284,8 +289,7 @@ class AppDatabase extends _$AppDatabase {
   Future<int> addAnnotation(AnnotationsCompanion a) => into(annotations).insert(a);
 
   Future<void> updateAnnotation(int id, AnnotationsCompanion a) =>
-      (update(annotations)..where((x) => x.id.equals(id)))
-          .write(a.copyWith(datetimeUpdated: Value(DateTime.now())));
+      (update(annotations)..where((x) => x.id.equals(id))).write(a.copyWith(datetimeUpdated: Value(DateTime.now())));
 
   Future<void> deleteAnnotation(int id) => (delete(annotations)..where((x) => x.id.equals(id))).go();
 

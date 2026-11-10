@@ -30,7 +30,9 @@ class _SearchSheet extends StatefulWidget {
 }
 
 class _SearchSheetState extends State<_SearchSheet> {
-  late final _query = TextEditingController(text: widget.initial.isNotEmpty ? widget.initial : widget.controller.search?.query ?? '');
+  late final _query = TextEditingController(
+    text: widget.initial.isNotEmpty ? widget.initial : widget.controller.search?.query ?? '',
+  );
   bool _caseInsensitive = true;
   bool _busy = false;
   List<SearchHit>? _hits;
@@ -67,70 +69,76 @@ class _SearchSheetState extends State<_SearchSheet> {
   Widget build(BuildContext context) {
     final hits = _hits;
     final scheme = Theme.of(context).colorScheme;
-    return Column(children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-        child: TextField(
-          controller: _query,
-          autofocus: widget.initial.isEmpty,
-          textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            hintText: 'Search in book',
-            prefixIcon: const Icon(Icons.search),
-            suffixIcon: _busy
-                ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2))
-                : IconButton(icon: const Icon(Icons.arrow_forward), onPressed: _run),
-          ),
-          onSubmitted: (_) => _run(),
-        ),
-      ),
-      SwitchListTile.adaptive(
-        dense: true,
-        title: const Text('Match case'),
-        value: !_caseInsensitive,
-        onChanged: (v) {
-          setState(() => _caseInsensitive = !v);
-          _run();
-        },
-      ),
-      if (hits != null)
+    return Column(
+      children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(hits.isEmpty ? 'No results.' : '${hits.length} results${hits.length >= 1000 ? ' (first 1000)' : ''}'),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: TextField(
+            controller: _query,
+            autofocus: widget.initial.isEmpty,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Search in book',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _busy
+                  ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2))
+                  : IconButton(icon: const Icon(Icons.arrow_forward), onPressed: _run),
+            ),
+            onSubmitted: (_) => _run(),
           ),
         ),
-      Expanded(
-        child: ListView.separated(
-          controller: widget.scroll,
-          itemCount: hits?.length ?? 0,
-          separatorBuilder: (_, _) => const Divider(height: 1),
-          itemBuilder: (context, i) {
-            final h = hits![i];
-            return ListTile(
-              dense: true,
-              title: Text.rich(
-                TextSpan(children: [
-                  TextSpan(text: h.before.isEmpty ? '' : '...${h.before}'),
-                  TextSpan(
-                    text: h.text,
-                    style: TextStyle(fontWeight: FontWeight.bold, backgroundColor: scheme.primaryContainer),
-                  ),
-                  TextSpan(text: h.after.isEmpty ? '' : '${h.after}...'),
-                ]),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: Text('${h.page}'),
-              onTap: () {
-                Navigator.pop(context);
-                widget.controller.showSearchHit(SearchState(query: _query.text.trim(), hits: hits, index: i), i);
-              },
-            );
+        SwitchListTile.adaptive(
+          dense: true,
+          title: const Text('Match case'),
+          value: !_caseInsensitive,
+          onChanged: (v) {
+            setState(() => _caseInsensitive = !v);
+            _run();
           },
         ),
-      ),
-    ]);
+        if (hits != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                hits.isEmpty ? 'No results.' : '${hits.length} results${hits.length >= 1000 ? ' (first 1000)' : ''}',
+              ),
+            ),
+          ),
+        Expanded(
+          child: ListView.separated(
+            controller: widget.scroll,
+            itemCount: hits?.length ?? 0,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, i) {
+              final h = hits![i];
+              return ListTile(
+                dense: true,
+                title: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(text: h.before.isEmpty ? '' : '...${h.before}'),
+                      TextSpan(
+                        text: h.text,
+                        style: TextStyle(fontWeight: FontWeight.bold, backgroundColor: scheme.primaryContainer),
+                      ),
+                      TextSpan(text: h.after.isEmpty ? '' : '${h.after}...'),
+                    ],
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Text('${h.page}'),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.controller.showSearchHit(SearchState(query: _query.text.trim(), hits: hits, index: i), i);
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 }

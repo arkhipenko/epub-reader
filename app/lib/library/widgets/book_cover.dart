@@ -56,26 +56,31 @@ class _Placeholder extends StatelessWidget {
     return Container(
       color: color,
       padding: const EdgeInsets.all(8),
-      child: LayoutBuilder(builder: (context, c) {
-        final size = (c.maxWidth / 8).clamp(9.0, 18.0);
-        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(
-            child: Text(
-              book.title,
-              maxLines: 5,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white, fontSize: size, fontWeight: FontWeight.w600, height: 1.15),
-            ),
-          ),
-          if (book.authors.isNotEmpty)
-            Text(
-              book.authors,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white70, fontSize: size * 0.75),
-            ),
-        ]);
-      }),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final size = (c.maxWidth / 8).clamp(9.0, 18.0);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  book.title,
+                  maxLines: 5,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white, fontSize: size, fontWeight: FontWeight.w600, height: 1.15),
+                ),
+              ),
+              if (book.authors.isNotEmpty)
+                Text(
+                  book.authors,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white70, fontSize: size * 0.75),
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 }

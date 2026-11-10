@@ -26,8 +26,7 @@ class QueuedUpdate {
 }
 
 class KoSyncQueue {
-  KoSyncQueue({required this.load, required this.save, DateTime Function()? clock})
-      : _clock = clock ?? DateTime.now;
+  KoSyncQueue({required this.load, required this.save, DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 
   /// Reads the stored queue (JSON text), or null when empty.
   final Future<String?> Function() load;

@@ -17,8 +17,7 @@ class OpdsLink {
 
   bool get isAcquisition => rel.startsWith('http://opds-spec.org/acquisition');
   bool get isCatalog => type.contains('application/atom+xml') || type.contains('opds-catalog');
-  bool get isThumbnail =>
-      rel == 'http://opds-spec.org/image/thumbnail' || rel == 'http://opds-spec.org/thumbnail';
+  bool get isThumbnail => rel == 'http://opds-spec.org/image/thumbnail' || rel == 'http://opds-spec.org/thumbnail';
   bool get isImage => rel == 'http://opds-spec.org/image' || rel == 'http://opds-spec.org/cover';
 }
 
@@ -128,8 +127,7 @@ String _resolve(Uri base, String href) {
   return base.resolve(protected).toString().replaceAll('%7B', '{').replaceAll('%7D', '}');
 }
 
-Iterable<XmlElement> _children(XmlElement e, String local) =>
-    e.childElements.where((c) => c.name.local == local);
+Iterable<XmlElement> _children(XmlElement e, String local) => e.childElements.where((c) => c.name.local == local);
 
 String _text(XmlElement e, String local) {
   final c = _children(e, local).firstOrNull;
@@ -137,15 +135,15 @@ String _text(XmlElement e, String local) {
 }
 
 List<OpdsLink> _links(XmlElement e, Uri base) => [
-      for (final l in _children(e, 'link'))
-        if ((l.getAttribute('href') ?? '').isNotEmpty)
-          OpdsLink(
-            href: _resolve(base, l.getAttribute('href')!),
-            rel: l.getAttribute('rel') ?? '',
-            type: l.getAttribute('type') ?? '',
-            title: l.getAttribute('title') ?? '',
-          ),
-    ];
+  for (final l in _children(e, 'link'))
+    if ((l.getAttribute('href') ?? '').isNotEmpty)
+      OpdsLink(
+        href: _resolve(base, l.getAttribute('href')!),
+        rel: l.getAttribute('rel') ?? '',
+        type: l.getAttribute('type') ?? '',
+        title: l.getAttribute('title') ?? '',
+      ),
+];
 
 /// Parses an Atom OPDS feed. [url] is the feed address, for relative links.
 OpdsFeed parseOpdsFeed(String xml, String url) {
@@ -192,17 +190,19 @@ OpdsFeed parseOpdsFeed(String xml, String url) {
       }
     }
     final content = _text(e, 'content');
-    entries.add(OpdsEntry(
-      id: _text(e, 'id'),
-      title: _text(e, 'title'),
-      authors: [for (final a in _children(e, 'author')) _text(a, 'name')].where((n) => n.isNotEmpty).toList(),
-      summary: content.isNotEmpty ? content : _text(e, 'summary'),
-      navigationHref: nav,
-      acquisitions: acquisitions,
-      thumbnailHref: links.where((l) => l.isThumbnail).firstOrNull?.href,
-      imageHref: links.where((l) => l.isImage).firstOrNull?.href,
-      updated: _text(e, 'updated'),
-    ));
+    entries.add(
+      OpdsEntry(
+        id: _text(e, 'id'),
+        title: _text(e, 'title'),
+        authors: [for (final a in _children(e, 'author')) _text(a, 'name')].where((n) => n.isNotEmpty).toList(),
+        summary: content.isNotEmpty ? content : _text(e, 'summary'),
+        navigationHref: nav,
+        acquisitions: acquisitions,
+        thumbnailHref: links.where((l) => l.isThumbnail).firstOrNull?.href,
+        imageHref: links.where((l) => l.isImage).firstOrNull?.href,
+        updated: _text(e, 'updated'),
+      ),
+    );
   }
   return OpdsFeed(
     title: _text(feed, 'title'),

@@ -14,7 +14,10 @@ class TocDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = controller;
     final text = Theme.of(context).textTheme;
-    final notes = [for (final a in c.highlights) if (a.note != null && a.note!.isNotEmpty) a];
+    final notes = [
+      for (final a in c.highlights)
+        if (a.note != null && a.note!.isNotEmpty) a,
+    ];
     return Drawer(
       width: 340,
       child: SafeArea(
@@ -22,31 +25,54 @@ class TocDrawer extends StatelessWidget {
           length: 4,
           child: ListenableBuilder(
             listenable: c,
-            builder: (context, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(c.info?.title ?? '', style: text.titleMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
-                  if ((c.info?.authors ?? '').isNotEmpty)
-                    Text(c.info!.authors, style: text.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
-                ]),
-              ),
-              const TabBar(
-                isScrollable: true,
-                tabAlignment: TabAlignment.start,
-                tabs: [Tab(text: 'Contents'), Tab(text: 'Bookmarks'), Tab(text: 'Notes'), Tab(text: 'Highlights')],
-              ),
-              Expanded(
-                child: TabBarView(children: [
-                  _Contents(controller: c),
-                  _AnnotationList(controller: c, items: c.bookmarks, empty: 'No bookmarks. Tap the top right corner '
-                      'of a page, or use the bookmark button in the menu.'),
-                  _AnnotationList(controller: c, items: notes, empty: 'No notes. Select text and choose Note.'),
-                  _AnnotationList(controller: c, items: c.highlights, empty: 'No highlights. Long press a word, '
-                      'drag to select more, and choose a color.'),
-                ]),
-              ),
-            ]),
+            builder: (context, _) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(c.info?.title ?? '', style: text.titleMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      if ((c.info?.authors ?? '').isNotEmpty)
+                        Text(c.info!.authors, style: text.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+                const TabBar(
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  tabs: [
+                    Tab(text: 'Contents'),
+                    Tab(text: 'Bookmarks'),
+                    Tab(text: 'Notes'),
+                    Tab(text: 'Highlights'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _Contents(controller: c),
+                      _AnnotationList(
+                        controller: c,
+                        items: c.bookmarks,
+                        empty:
+                            'No bookmarks. Tap the top right corner '
+                            'of a page, or use the bookmark button in the menu.',
+                      ),
+                      _AnnotationList(controller: c, items: notes, empty: 'No notes. Select text and choose Note.'),
+                      _AnnotationList(
+                        controller: c,
+                        items: c.highlights,
+                        empty:
+                            'No highlights. Long press a word, '
+                            'drag to select more, and choose a color.',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -103,21 +129,23 @@ class _ContentsState extends State<_Contents> {
           child: Container(
             color: selected ? scheme.primaryContainer.withValues(alpha: 0.6) : null,
             padding: EdgeInsets.only(left: 20.0 + 16.0 * (e.depth - 1).clamp(0, 5), right: 16),
-            child: Row(children: [
-              Expanded(
-                child: Text(
-                  e.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.bodyMedium?.copyWith(
-                    fontWeight: selected ? FontWeight.w600 : null,
-                    color: selected ? scheme.primary : null,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    e.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.bodyMedium?.copyWith(
+                      fontWeight: selected ? FontWeight.w600 : null,
+                      color: selected ? scheme.primary : null,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Text('${e.page}', style: text.bodySmall),
-            ]),
+                const SizedBox(width: 12),
+                Text('${e.page}', style: text.bodySmall),
+              ],
+            ),
           ),
         );
       },
@@ -135,7 +163,10 @@ class _AnnotationList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
-      return Padding(padding: const EdgeInsets.all(24), child: Text(empty, textAlign: TextAlign.center));
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(empty, textAlign: TextAlign.center),
+      );
     }
     final text = Theme.of(context).textTheme;
     return ListView.separated(
@@ -154,15 +185,18 @@ class _AnnotationList extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: isBookmark ? null : const TextStyle(fontStyle: FontStyle.italic),
           ),
-          subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            if (a.note != null && a.note!.isNotEmpty) Text(a.note!, maxLines: 3, overflow: TextOverflow.ellipsis),
-            Text(
-              [if (a.chapter.isNotEmpty) a.chapter, 'p. ${controller.pageOfAnnotation(a)}'].join('  -  '),
-              style: text.bodySmall,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ]),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (a.note != null && a.note!.isNotEmpty) Text(a.note!, maxLines: 3, overflow: TextOverflow.ellipsis),
+              Text(
+                [if (a.chapter.isNotEmpty) a.chapter, 'p. ${controller.pageOfAnnotation(a)}'].join('  -  '),
+                style: text.bodySmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
           onTap: () {
             Navigator.of(context).pop();
             controller.gotoAnnotation(a);

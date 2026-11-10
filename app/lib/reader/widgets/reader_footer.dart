@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/material.dart';
 
+import '../power.dart';
 import '../reader_controller.dart';
 import '../reader_settings.dart';
 
@@ -19,7 +20,7 @@ class ReaderFooter extends StatefulWidget {
   State<ReaderFooter> createState() => _ReaderFooterState();
 }
 
-class _ReaderFooterState extends State<ReaderFooter> {
+class _ReaderFooterState extends State<ReaderFooter> with WidgetsBindingObserver {
   final Battery _battery = Battery();
   Timer? _timer;
   int? _batteryLevel;
@@ -27,9 +28,27 @@ class _ReaderFooterState extends State<ReaderFooter> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _start();
+  }
+
+  // The clock shows minutes and the battery level changes slowly, so the
+  // line refreshes every 30 s (1 min in battery saver mode), and not at
+  // all while the app is in the background.
+  void _start() {
+    _timer?.cancel();
     _tick();
-    // The clock shows minutes. Battery level changes slowly.
-    _timer = Timer.periodic(const Duration(seconds: 30), (_) => _tick());
+    _timer = Timer.periodic(footerInterval(saver: widget.controller.batterySaver), (_) => _tick());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _start();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _timer?.cancel();
+      _timer = null;
+    }
   }
 
   Future<void> _tick() async {
@@ -44,6 +63,7 @@ class _ReaderFooterState extends State<ReaderFooter> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }
@@ -80,17 +100,19 @@ class _ReaderFooterState extends State<ReaderFooter> {
       height: ReaderFooter.height,
       color: theme.background,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(children: [
-        if (showTitle)
-          Expanded(
-            child: Text(c.chapterTitle, style: style, maxLines: 1, overflow: TextOverflow.ellipsis),
-          )
-        else
-          const Spacer(),
-        if (showTitle && parts.isNotEmpty) const SizedBox(width: 12),
-        Text(parts.join('  |  '), style: style),
-        if (!showTitle) const Spacer(),
-      ]),
+      child: Row(
+        children: [
+          if (showTitle)
+            Expanded(
+              child: Text(c.chapterTitle, style: style, maxLines: 1, overflow: TextOverflow.ellipsis),
+            )
+          else
+            const Spacer(),
+          if (showTitle && parts.isNotEmpty) const SizedBox(width: 12),
+          Text(parts.join('  |  '), style: style),
+          if (!showTitle) const Spacer(),
+        ],
+      ),
     );
   }
 }

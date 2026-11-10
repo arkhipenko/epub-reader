@@ -88,8 +88,7 @@ class OpdsClient {
   Future<String?> searchUrl(OpdsFeed feed, String terms) async {
     var template = feed.searchTemplate;
     if (template == null && feed.searchDescriptionHref != null) {
-      final osd = await _getText(feed.searchDescriptionHref!,
-          accept: 'application/opensearchdescription+xml, */*');
+      final osd = await _getText(feed.searchDescriptionHref!, accept: 'application/opensearchdescription+xml, */*');
       template = parseOpenSearchTemplate(osd, feed.searchDescriptionHref!);
     }
     if (template == null) return null;
@@ -158,7 +157,7 @@ class OpdsClient {
     final dot = path.toLowerCase().endsWith('.fb2.zip') ? path.length - 8 : path.lastIndexOf('.');
     final stem = dot > path.lastIndexOf('/') ? path.substring(0, dot) : path;
     final ext = dot > path.lastIndexOf('/') ? path.substring(dot) : '';
-    for (var i = 2;; i++) {
+    for (var i = 2; ; i++) {
       final c = File('$stem ($i)$ext');
       if (!await c.exists()) return c;
     }

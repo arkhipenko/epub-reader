@@ -79,32 +79,31 @@ class KoSyncSettings {
     ChecksumMethod? checksumMethod,
     bool? sendMetadata,
     String? Function()? deviceName,
-  }) =>
-      KoSyncSettings(
-        serverUrl: serverUrl ?? this.serverUrl,
-        username: username != null ? username() : this.username,
-        userkey: userkey != null ? userkey() : this.userkey,
-        autoSync: autoSync ?? this.autoSync,
-        pagesBeforeUpdate: pagesBeforeUpdate ?? this.pagesBeforeUpdate,
-        syncForward: syncForward ?? this.syncForward,
-        syncBackward: syncBackward ?? this.syncBackward,
-        checksumMethod: checksumMethod ?? this.checksumMethod,
-        sendMetadata: sendMetadata ?? this.sendMetadata,
-        deviceName: deviceName != null ? deviceName() : this.deviceName,
-      );
+  }) => KoSyncSettings(
+    serverUrl: serverUrl ?? this.serverUrl,
+    username: username != null ? username() : this.username,
+    userkey: userkey != null ? userkey() : this.userkey,
+    autoSync: autoSync ?? this.autoSync,
+    pagesBeforeUpdate: pagesBeforeUpdate ?? this.pagesBeforeUpdate,
+    syncForward: syncForward ?? this.syncForward,
+    syncBackward: syncBackward ?? this.syncBackward,
+    checksumMethod: checksumMethod ?? this.checksumMethod,
+    sendMetadata: sendMetadata ?? this.sendMetadata,
+    deviceName: deviceName != null ? deviceName() : this.deviceName,
+  );
 
   Map<String, Object?> toJson() => {
-        'serverUrl': serverUrl,
-        'username': username,
-        'userkey': userkey,
-        'autoSync': autoSync,
-        'pagesBeforeUpdate': pagesBeforeUpdate,
-        'syncForward': syncForward.name,
-        'syncBackward': syncBackward.name,
-        'checksumMethod': checksumMethod.name,
-        'sendMetadata': sendMetadata,
-        'deviceName': deviceName,
-      };
+    'serverUrl': serverUrl,
+    'username': username,
+    'userkey': userkey,
+    'autoSync': autoSync,
+    'pagesBeforeUpdate': pagesBeforeUpdate,
+    'syncForward': syncForward.name,
+    'syncBackward': syncBackward.name,
+    'checksumMethod': checksumMethod.name,
+    'sendMetadata': sendMetadata,
+    'deviceName': deviceName,
+  };
 
   static KoSyncSettings decode(String? text) {
     if (text == null) return const KoSyncSettings();

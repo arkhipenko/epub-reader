@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:battery_plus/battery_plus.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
@@ -14,6 +15,7 @@ import '../sync/kosync_decision.dart';
 import '../sync/kosync_session.dart';
 import '../sync/partial_md5.dart';
 import 'chapters.dart';
+import 'power.dart';
 import 'reader_settings.dart';
 import 'reader_theme.dart';
 
@@ -51,8 +53,7 @@ class SearchState {
 }
 
 class ReaderController extends ChangeNotifier {
-  ReaderController({required this.services, required this.path, this.jumpTo})
-      : _settings = services.settings.value {
+  ReaderController({required this.services, required this.path, this.jumpTo}) : _settings = services.settings.value {
     services.settings.addListener(_onSettingsChanged);
   }
 
@@ -89,6 +90,13 @@ class ReaderController extends ChangeNotifier {
   final StreamController<SyncEvent> _syncEvents = StreamController.broadcast();
   Stream<SyncEvent> get syncEvents => _syncEvents.stream;
   Timer? _resumePullTimer;
+  DateTime? _pausedAt;
+
+  /// Last page turn direction: +1 forward, -1 back. Pre-rendering follows it.
+  int _direction = 1;
+
+  /// Android battery saver is on: the reader skips optional work.
+  bool batterySaver = false;
 
   // ---- Annotations, selection, search, links ----
 
@@ -192,7 +200,16 @@ class ReaderController extends ChangeNotifier {
     }
   }
 
+  Future<void> _checkBatterySaver() async {
+    try {
+      batterySaver = await Battery().isInBatterySaveMode;
+    } catch (_) {
+      batterySaver = false;
+    }
+  }
+
   Future<void> _open() async {
+    await _checkBatterySaver();
     try {
       final size = _requestedSize!;
       final id = await partialMd5OfFile(path);
@@ -297,7 +314,12 @@ class ReaderController extends ChangeNotifier {
     if (rgba == null || generation != _generation || _disposed) return;
     final completer = Completer<ui.Image>();
     ui.decodeImageFromPixels(
-        rgba, size.width.toInt(), size.height.toInt(), ui.PixelFormat.rgba8888, completer.complete);
+      rgba,
+      size.width.toInt(),
+      size.height.toInt(),
+      ui.PixelFormat.rgba8888,
+      completer.complete,
+    );
     final image = await completer.future;
     if (generation != _generation || _disposed) {
       image.dispose();
@@ -306,12 +328,19 @@ class ReaderController extends ChangeNotifier {
     _pages[page] = image;
   }
 
-  /// Keeps the next and previous pages ready, and drops the rest.
+  /// Renders the page in the reading direction ahead (none in battery
+  /// saver mode) and drops pages that are not neighbours of the current one.
   Future<void> _prefetch() async {
     final current = displayPage;
-    await _ensurePage(current + 1);
-    await _ensurePage(current - 1);
-    final keep = {current - 1, current, current + 1, displayPage};
+    for (final p in pagesToPrefetch(
+      current: current,
+      direction: _direction,
+      pageCount: pageCount,
+      saver: batterySaver,
+    )) {
+      await _ensurePage(p);
+    }
+    final keep = {...pagesToKeep(current), displayPage};
     final drop = _pages.keys.where((k) => !keep.contains(k)).toList();
     for (final k in drop) {
       _disposeLater(_pages.remove(k)!);
@@ -347,6 +376,7 @@ class ReaderController extends ChangeNotifier {
     if (!isOpen) return;
     final target = displayPage + delta;
     if (target < 1 || target > pageCount) return;
+    _direction = delta < 0 ? -1 : 1;
     speed.pageTurned(DateTime.now());
     if (_pages.containsKey(target)) {
       // Show the cached page now. The engine follows.
@@ -358,6 +388,7 @@ class ReaderController extends ChangeNotifier {
 
   Future<void> gotoPage(int page) {
     if (!isOpen) return Future.value();
+    _direction = 1;
     final target = page.clamp(1, pageCount);
     return _serial(() async => _setPosition(await _engine.gotoPage(target)));
   }
@@ -367,11 +398,11 @@ class ReaderController extends ChangeNotifier {
 
   /// Returns false when the XPointer is not in the document.
   Future<bool> gotoXPointer(String xpointer) => _serial(() async {
-        final p = await _engine.gotoXPointer(xpointer);
-        if (p == null) return false;
-        await _setPosition(p);
-        return true;
-      });
+    final p = await _engine.gotoXPointer(xpointer);
+    if (p == null) return false;
+    await _setPosition(p);
+    return true;
+  });
 
   Future<void> nextChapter() async {
     final p = nextChapterPage(toc, displayPage);
@@ -423,11 +454,15 @@ class ReaderController extends ChangeNotifier {
     return null;
   }
 
-  List<Annotation> get bookmarks => [for (final a in annotations) if (a.pos0 == null) a]
-    ..sort((a, b) => (_pageOf[a.page] ?? a.pageno).compareTo(_pageOf[b.page] ?? b.pageno));
+  List<Annotation> get bookmarks => [
+    for (final a in annotations)
+      if (a.pos0 == null) a,
+  ]..sort((a, b) => (_pageOf[a.page] ?? a.pageno).compareTo(_pageOf[b.page] ?? b.pageno));
 
-  List<Annotation> get highlights => [for (final a in annotations) if (a.pos0 != null) a]
-    ..sort((a, b) => (_pageOf[a.page] ?? a.pageno).compareTo(_pageOf[b.page] ?? b.pageno));
+  List<Annotation> get highlights => [
+    for (final a in annotations)
+      if (a.pos0 != null) a,
+  ]..sort((a, b) => (_pageOf[a.page] ?? a.pageno).compareTo(_pageOf[b.page] ?? b.pageno));
 
   /// Page of an annotation in the current layout (its saved page if unknown).
   int pageOfAnnotation(Annotation a) => _pageOf[a.page] ?? a.pageno;
@@ -468,24 +503,26 @@ class ReaderController extends ChangeNotifier {
     }
     final text = await _serial(() => _engine.textAt(xp, maxChars: 120)) ?? '';
     _pageOf[xp] = p.page;
-    await services.db.addAnnotation(AnnotationsCompanion.insert(
-      bookId: id,
-      page: xp,
-      textContent: Value(text.trim()),
-      chapter: Value(chapterTitle),
-      pageno: Value(p.page),
-      datetime: DateTime.now(),
-    ));
+    await services.db.addAnnotation(
+      AnnotationsCompanion.insert(
+        bookId: id,
+        page: xp,
+        textContent: Value(text.trim()),
+        chapter: Value(chapterTitle),
+        pageno: Value(p.page),
+        datetime: DateTime.now(),
+      ),
+    );
   }
 
   // ---- Selection ----
 
   /// Selects the word at a point (page pixels).
   Future<void> selectWordAt(ui.Offset px) => _serial(() async {
-        selection = await _engine.select(px.dx.round(), px.dy.round(), px.dx.round(), px.dy.round());
-        await _refreshMarks();
-        notifyListeners();
-      });
+    selection = await _engine.select(px.dx.round(), px.dy.round(), px.dx.round(), px.dy.round());
+    await _refreshMarks();
+    notifyListeners();
+  });
 
   /// Selects from [anchor] to [point] (page pixels). While a drag sends many
   /// points, only the latest waiting one is sent to the engine.
@@ -493,20 +530,22 @@ class ReaderController extends ChangeNotifier {
     _pendingExtend = (anchor, point);
     if (_extending) return;
     _extending = true;
-    unawaited(_serial(() async {
-      try {
-        while (_pendingExtend != null) {
-          final (a, b) = _pendingExtend!;
-          _pendingExtend = null;
-          final s = await _engine.select(a.dx.round(), a.dy.round(), b.dx.round(), b.dy.round());
-          if (s != null) selection = s;
-          await _refreshMarks();
-          notifyListeners();
+    unawaited(
+      _serial(() async {
+        try {
+          while (_pendingExtend != null) {
+            final (a, b) = _pendingExtend!;
+            _pendingExtend = null;
+            final s = await _engine.select(a.dx.round(), a.dy.round(), b.dx.round(), b.dy.round());
+            if (s != null) selection = s;
+            await _refreshMarks();
+            notifyListeners();
+          }
+        } finally {
+          _extending = false;
         }
-      } finally {
-        _extending = false;
-      }
-    }));
+      }),
+    );
   }
 
   void clearSelection() {
@@ -521,19 +560,21 @@ class ReaderController extends ChangeNotifier {
     final id = bookId;
     if (s == null || id == null) return;
     _pageOf[s.pos0] = displayPage;
-    await services.db.addAnnotation(AnnotationsCompanion.insert(
-      bookId: id,
-      page: s.pos0,
-      pos0: Value(s.pos0),
-      pos1: Value(s.pos1),
-      textContent: Value(s.text),
-      note: Value(note == null || note.trim().isEmpty ? null : note),
-      color: Value(color),
-      drawer: Value(drawer),
-      chapter: Value(chapterTitle),
-      pageno: Value(displayPage),
-      datetime: DateTime.now(),
-    ));
+    await services.db.addAnnotation(
+      AnnotationsCompanion.insert(
+        bookId: id,
+        page: s.pos0,
+        pos0: Value(s.pos0),
+        pos1: Value(s.pos1),
+        textContent: Value(s.text),
+        note: Value(note == null || note.trim().isEmpty ? null : note),
+        color: Value(color),
+        drawer: Value(drawer),
+        chapter: Value(chapterTitle),
+        pageno: Value(displayPage),
+        datetime: DateTime.now(),
+      ),
+    );
     clearSelection();
   }
 
@@ -677,13 +718,21 @@ class ReaderController extends ChangeNotifier {
         }
       case PullOutcome.askForward:
         if (!_syncEvents.isClosed) {
-          _syncEvents.add(SyncQuestion(
-              "Sync to latest location ${d.remotePercent}% from device '${remote!.device}'?", remote.progress));
+          _syncEvents.add(
+            SyncQuestion(
+              "Sync to latest location ${d.remotePercent}% from device '${remote!.device}'?",
+              remote.progress,
+            ),
+          );
         }
       case PullOutcome.askBackward:
         if (!_syncEvents.isClosed) {
-          _syncEvents.add(SyncQuestion(
-              "Sync to previous location ${d.remotePercent}% from device '${remote!.device}'?", remote.progress));
+          _syncEvents.add(
+            SyncQuestion(
+              "Sync to previous location ${d.remotePercent}% from device '${remote!.device}'?",
+              remote.progress,
+            ),
+          );
         }
       case PullOutcome.ignored:
         break;
@@ -697,13 +746,19 @@ class ReaderController extends ChangeNotifier {
 
   /// App goes to the background (KOReader onSuspend: push).
   void onPause() {
+    _pausedAt = DateTime.now();
     unawaited(saveNow());
     if (services.kosync.current.autoSync) unawaited(pushProgress());
   }
 
-  /// App comes back (KOReader onResume: pull after 1 s).
+  /// App comes back. KOReader pulls 1 s after every resume; this app pulls
+  /// only after [kResumePullMinAway] in the background (fewer radio wake-ups).
   void onResume() {
+    unawaited(_checkBatterySaver());
+    final away = _pausedAt;
+    _pausedAt = null;
     if (!services.kosync.current.autoSync || _sync == null) return;
+    if (!shouldPullOnResume(pausedAt: away, now: DateTime.now())) return;
     _resumePullTimer?.cancel();
     _resumePullTimer = Timer(const Duration(seconds: 1), () => unawaited(_autoPull()));
   }

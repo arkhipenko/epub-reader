@@ -45,16 +45,16 @@ class EngineLayout {
   final int textRgb;
 
   Map<String, Object?> toMap() => {
-        'fontFace': fontFace,
-        'fontSize': fontSize,
-        'interline': interlinePercent,
-        'margins': [marginLeft, marginTop, marginRight, marginBottom],
-        'hyph': hyphenation,
-        'embStyles': embeddedStyles,
-        'embFonts': embeddedFonts,
-        'bg': backgroundRgb,
-        'fg': textRgb,
-      };
+    'fontFace': fontFace,
+    'fontSize': fontSize,
+    'interline': interlinePercent,
+    'margins': [marginLeft, marginTop, marginRight, marginBottom],
+    'hyph': hyphenation,
+    'embStyles': embeddedStyles,
+    'embFonts': embeddedFonts,
+    'bg': backgroundRgb,
+    'fg': textRgb,
+  };
 }
 
 class TocEntry {
@@ -84,12 +84,7 @@ class BookInfo {
 
 /// The reading position as the engine reports it.
 class EnginePosition {
-  const EnginePosition({
-    required this.page,
-    required this.pageCount,
-    required this.percent,
-    required this.xpointer,
-  });
+  const EnginePosition({required this.page, required this.pageCount, required this.percent, required this.xpointer});
 
   /// 1-based page.
   final int page;
@@ -102,11 +97,11 @@ class EnginePosition {
   final String? xpointer;
 
   static EnginePosition fromMap(Map m) => EnginePosition(
-        page: m['page'] as int,
-        pageCount: m['pages'] as int,
-        percent: m['percent'] as int,
-        xpointer: m['xpointer'] as String?,
-      );
+    page: m['page'] as int,
+    pageCount: m['pages'] as int,
+    percent: m['percent'] as int,
+    xpointer: m['xpointer'] as String?,
+  );
 }
 
 /// Result of a layout change: new page count, TOC page numbers and position.
@@ -273,12 +268,14 @@ class CreEngine {
 
   static List<TocEntry> _toc(Object? json) => (jsonDecode(json as String) as List)
       .cast<Map<String, dynamic>>()
-      .map((e) => TocEntry(
-            title: e['title'] as String,
-            xpointer: e['xpointer'] as String,
-            page: e['page'] as int,
-            depth: e['depth'] as int,
-          ))
+      .map(
+        (e) => TocEntry(
+          title: e['title'] as String,
+          xpointer: e['xpointer'] as String,
+          page: e['page'] as int,
+          depth: e['depth'] as int,
+        ),
+      )
       .toList();
 
   /// Opens a book. When [xpointer] is given and found, the book opens there.
@@ -290,15 +287,17 @@ class CreEngine {
     required EngineLayout layout,
     String? xpointer,
   }) async {
-    final r = (await _call('open', {
-      'path': path,
-      'width': width,
-      'height': height,
-      'dpi': dpi,
-      'isFb2': isFb2Path(path),
-      'layout': layout.toMap(),
-      'xpointer': xpointer,
-    }))! as Map;
+    final r =
+        (await _call('open', {
+              'path': path,
+              'width': width,
+              'height': height,
+              'dpi': dpi,
+              'isFb2': isFb2Path(path),
+              'layout': layout.toMap(),
+              'xpointer': xpointer,
+            }))!
+            as Map;
     final info = jsonDecode(r['info'] as String) as Map<String, dynamic>;
     return OpenResult(
       info: BookInfo(
@@ -352,7 +351,9 @@ class CreEngine {
   /// Selects text between two points of the current page (page pixels).
   /// Equal points select the word at the point.
   Future<TextSelection?> select(int x0, int y0, int x1, int y1) async {
-    final r = await _call('select', {'p': [x0, y0, x1, y1]});
+    final r = await _call('select', {
+      'p': [x0, y0, x1, y1],
+    });
     if (r == null) return null;
     final j = jsonDecode(r as String) as Map<String, dynamic>;
     return TextSelection(text: j['text'] as String, pos0: j['pos0'] as String, pos1: j['pos1'] as String);
@@ -365,9 +366,13 @@ class CreEngine {
   /// (pos0, pos1). Keys of ranges that are not on the page are left out.
   Future<Map<String, List<PageRect>>> boxes(Map<String, (String, String)> ranges) async {
     if (ranges.isEmpty) return const {};
-    final r = (await _call('boxes', {
-      'r': [for (final e in ranges.entries) [e.key, e.value.$1, e.value.$2]],
-    }))! as Map;
+    final r =
+        (await _call('boxes', {
+              'r': [
+                for (final e in ranges.entries) [e.key, e.value.$1, e.value.$2],
+              ],
+            }))!
+            as Map;
     return {
       for (final e in r.entries)
         e.key as String: [
@@ -614,11 +619,7 @@ class _Worker {
     _b.docRender(_doc);
     final xp = a['xpointer'] as String?;
     if (xp != null && xp.isNotEmpty) _b.docGotoXPointer(_doc, xp);
-    return {
-      'info': _b.docInfoJson(_doc) ?? '{}',
-      'toc': _b.docTocJson(_doc) ?? '[]',
-      'pos': _position(),
-    };
+    return {'info': _b.docInfoJson(_doc) ?? '{}', 'toc': _b.docTocJson(_doc) ?? '[]', 'pos': _position()};
   }
 
   /// Runs [change], lays the book out again, and returns to the same text.
@@ -632,11 +633,11 @@ class _Worker {
   }
 
   Map<String, Object?> _position() => {
-        'page': _b.docCurrentPage(_doc),
-        'pages': _b.docPageCount(_doc),
-        'percent': _b.docPercent(_doc),
-        'xpointer': _b.docGetXPointer(_doc),
-      };
+    'page': _b.docCurrentPage(_doc),
+    'pages': _b.docPageCount(_doc),
+    'percent': _b.docPercent(_doc),
+    'xpointer': _b.docGetXPointer(_doc),
+  };
 
   Object? _drawPage(int page, bool invertImages) {
     final size = _width * _height * 4;

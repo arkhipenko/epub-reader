@@ -21,14 +21,13 @@ class _EpubReaderAppState extends State<EpubReaderApp> {
   /// start is otherwise too fast to see it.
   static const Duration _minBootLogo = Duration(milliseconds: 1500);
 
-  late final Future<AppServices> _services =
-      Future.wait<Object?>([AppServices.start(), Future<void>.delayed(_minBootLogo)])
-          .then((r) => r.first! as AppServices);
+  late final Future<AppServices> _services = Future.wait<Object?>([
+    AppServices.start(),
+    Future<void>.delayed(_minBootLogo),
+  ]).then((r) => r.first! as AppServices);
 
-  ThemeData _theme(String accentId) => ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: accentById(accentId).color),
-        useMaterial3: true,
-      );
+  ThemeData _theme(String accentId) =>
+      ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: accentById(accentId).color), useMaterial3: true);
 
   @override
   Widget build(BuildContext context) {
@@ -48,17 +47,20 @@ class _EpubReaderAppState extends State<EpubReaderApp> {
                 child: Center(
                   child: Padding(
                     padding: const EdgeInsets.all(32),
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 420),
-                        child: Image.asset('images/logo.png', fit: BoxFit.contain),
-                      ),
-                      const SizedBox(height: 32),
-                      if (snapshot.hasError)
-                        Text('The reading engine did not start.\n\n${snapshot.error}')
-                      else
-                        const SizedBox(width: 160, child: LinearProgressIndicator()),
-                    ]),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 420),
+                          child: Image.asset('images/logo.png', fit: BoxFit.contain),
+                        ),
+                        const SizedBox(height: 32),
+                        if (snapshot.hasError)
+                          Text('The reading engine did not start.\n\n${snapshot.error}')
+                        else
+                          const SizedBox(width: 160, child: LinearProgressIndicator()),
+                      ],
+                    ),
                   ),
                 ),
               ),

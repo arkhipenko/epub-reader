@@ -16,6 +16,7 @@ import 'folders_screen.dart';
 import 'library_filter.dart';
 import 'library_scanner.dart';
 import 'library_settings.dart';
+import '../reader/power.dart';
 import 'widgets/book_actions.dart';
 import 'widgets/book_cover.dart';
 
@@ -59,15 +60,28 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _checkAccessAndScan();
+    if (state == AppLifecycleState.resumed) _checkAccessAndScan(onResume: true);
   }
 
-  Future<void> _checkAccessAndScan() async {
+  /// Checks storage access and scans the library. A return to the app scans
+  /// only when access was just granted or the last scan is old (walking big
+  /// folders on every app switch costs battery).
+  Future<void> _checkAccessAndScan({bool onResume = false}) async {
+    final before = _access;
     final access = await hasStorageAccess();
     if (!mounted) return;
     setState(() => _access = access);
+    final scanner = _services.scanner;
+    if (onResume &&
+        !shouldRescanOnResume(
+          lastScan: scanner.lastScan,
+          now: DateTime.now(),
+          accessGranted: access && before == false,
+        )) {
+      return;
+    }
     // Without access only the app's own folder is scanned.
-    _services.scanner.scan(access ? _services.library.value.folders : const []).ignore();
+    scanner.scan(access ? _services.library.value.folders : const []).ignore();
   }
 
   Future<void> _open(String path) async {
@@ -101,8 +115,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
     if (closeDrawer) Navigator.of(context).pop();
   }
 
-  void _go(Widget screen) =>
-      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
+  void _go(Widget screen) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
 
   @override
   Widget build(BuildContext context) {
@@ -124,8 +137,13 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
               if (_section.kind == SectionKind.shelf && !shelves.any((s) => s.id == _section.shelfId)) {
                 _section = LibrarySection.books;
               }
-              final books = libraryView(all,
-                  section: _section, query: _search.text.trim(), sort: settings.sort, shelves: map);
+              final books = libraryView(
+                all,
+                section: _section,
+                query: _search.text.trim(),
+                sort: settings.sort,
+                shelves: map,
+              );
               final sidebar = _Sidebar(
                 selected: _section,
                 all: all,
@@ -137,30 +155,32 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
                   _go(w);
                 },
               );
-              final body = Column(children: [
-                _ScanBar(progress: services.scanner.progress),
-                // Only when there are folders to scan: a new install has none.
-                if (_access == false && Platform.isAndroid && settings.folders.isNotEmpty)
-                  MaterialBanner(
-                    content: const Text('Allow access to all files to find the books in your folders.'),
-                    actions: [
-                      TextButton(onPressed: () => _go(const FoldersScreen()), child: const Text('Settings')),
-                      FilledButton(
-                        onPressed: () async {
-                          await requestStorageAccess();
-                          await _checkAccessAndScan();
-                        },
-                        child: const Text('Allow'),
-                      ),
-                    ],
+              final body = Column(
+                children: [
+                  _ScanBar(progress: services.scanner.progress),
+                  // Only when there are folders to scan: a new install has none.
+                  if (_access == false && Platform.isAndroid && settings.folders.isNotEmpty)
+                    MaterialBanner(
+                      content: const Text('Allow access to all files to find the books in your folders.'),
+                      actions: [
+                        TextButton(onPressed: () => _go(const FoldersScreen()), child: const Text('Settings')),
+                        FilledButton(
+                          onPressed: () async {
+                            await requestStorageAccess();
+                            await _checkAccessAndScan();
+                          },
+                          child: const Text('Allow'),
+                        ),
+                      ],
+                    ),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: () => services.scanner.scan(_access == true ? settings.folders : const []),
+                      child: books.isEmpty ? _empty(context, all.isEmpty) : _books(context, books, settings.view),
+                    ),
                   ),
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: () => services.scanner.scan(_access == true ? settings.folders : const []),
-                    child: books.isEmpty ? _empty(context, all.isEmpty) : _books(context, books, settings.view),
-                  ),
-                ),
-              ]);
+                ],
+              );
               return Scaffold(
                 drawer: wide ? null : Drawer(child: sidebar),
                 appBar: _appBar(context, settings),
@@ -172,10 +192,12 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
                         label: const Text('Open book'),
                       ),
                 body: wide
-                    ? Row(children: [
-                        SizedBox(width: 280, child: Material(elevation: 1, child: sidebar)),
-                        Expanded(child: body),
-                      ])
+                    ? Row(
+                        children: [
+                          SizedBox(width: 280, child: Material(elevation: 1, child: sidebar)),
+                          Expanded(child: body),
+                        ],
+                      )
                     : body,
               );
             },
@@ -243,12 +265,14 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
       _ => 'No books.',
     };
     // A scrollable view, so that pull-to-refresh works when the list is empty.
-    return ListView(children: [
-      Padding(
-        padding: const EdgeInsets.all(32),
-        child: Text(text, textAlign: TextAlign.center),
-      ),
-    ]);
+    return ListView(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text(text, textAlign: TextAlign.center),
+        ),
+      ],
+    );
   }
 
   Widget _books(BuildContext context, List<Book> books, LibraryView view) {
@@ -297,34 +321,53 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
               borderRadius: BorderRadius.circular(8),
               onTap: () => tap(b),
               onLongPress: () => actions(b),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                AspectRatio(
-                  aspectRatio: 2 / 3,
-                  child: Stack(fit: StackFit.expand, children: [
-                    Material(
-                      elevation: 2,
-                      borderRadius: BorderRadius.circular(6),
-                      child: BookCover(book: b, decodeWidth: covers ? 360 : 280),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AspectRatio(
+                    aspectRatio: 2 / 3,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Material(
+                          elevation: 2,
+                          borderRadius: BorderRadius.circular(6),
+                          child: BookCover(book: b, decodeWidth: covers ? 360 : 280),
+                        ),
+                        if (b.progress > 0)
+                          Positioned(right: 4, bottom: 4, child: _ProgressBadge(progress: b.progress)),
+                        if (b.favorite)
+                          const Positioned(
+                            left: 4,
+                            top: 4,
+                            child: Icon(
+                              Icons.favorite,
+                              size: 18,
+                              color: Colors.white,
+                              shadows: [Shadow(blurRadius: 4)],
+                            ),
+                          ),
+                      ],
                     ),
-                    if (b.progress > 0)
-                      Positioned(right: 4, bottom: 4, child: _ProgressBadge(progress: b.progress)),
-                    if (b.favorite)
-                      const Positioned(
-                        left: 4,
-                        top: 4,
-                        child: Icon(Icons.favorite, size: 18, color: Colors.white, shadows: [Shadow(blurRadius: 4)]),
+                  ),
+                  if (!covers) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      b.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.2),
+                    ),
+                    if (b.authors.isNotEmpty)
+                      Text(
+                        b.authors,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                  ]),
-                ),
-                if (!covers) ...[
-                  const SizedBox(height: 6),
-                  Text(b.title, maxLines: 2, overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.2)),
-                  if (b.authors.isNotEmpty)
-                    Text(b.authors, maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall),
+                  ],
                 ],
-              ]),
+              ),
             );
           },
         );
@@ -339,10 +382,10 @@ class _ProgressBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-        child: Text('${(progress * 100).round()}%', style: const TextStyle(color: Colors.white, fontSize: 11)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+    child: Text('${(progress * 100).round()}%', style: const TextStyle(color: Colors.white, fontSize: 11)),
+  );
 }
 
 class _ProgressText extends StatelessWidget {
@@ -363,19 +406,21 @@ class _ScanBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<ScanProgress>(
-        valueListenable: progress,
-        builder: (context, p, _) {
-          if (!p.running) return const SizedBox.shrink();
-          final label = p.total == 0 ? 'Looking for books...' : 'Reading new books: ${p.done} of ${p.total}';
-          return Column(children: [
-            LinearProgressIndicator(value: p.total == 0 ? null : p.done / p.total),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Text(label, style: Theme.of(context).textTheme.bodySmall),
-            ),
-          ]);
-        },
+    valueListenable: progress,
+    builder: (context, p, _) {
+      if (!p.running) return const SizedBox.shrink();
+      final label = p.total == 0 ? 'Looking for books...' : 'Reading new books: ${p.done} of ${p.total}';
+      return Column(
+        children: [
+          LinearProgressIndicator(value: p.total == 0 ? null : p.done / p.total),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+          ),
+        ],
       );
+    },
+  );
 }
 
 class _Sidebar extends StatelessWidget {
@@ -400,89 +445,93 @@ class _Sidebar extends StatelessWidget {
     final db = ServicesScope.of(context).db;
     final active = all.where((b) => b.deletedAt == null);
     int countOf(SectionKind k) => switch (k) {
-          SectionKind.books => active.length,
-          SectionKind.recent => active.where((b) => b.lastOpenedAt != null).length,
-          SectionKind.favorites => active.where((b) => b.favorite).length,
-          SectionKind.deleted => all.length - active.length,
-          SectionKind.shelf => 0,
-        };
+      SectionKind.books => active.length,
+      SectionKind.recent => active.where((b) => b.lastOpenedAt != null).length,
+      SectionKind.favorites => active.where((b) => b.favorite).length,
+      SectionKind.deleted => all.length - active.length,
+      SectionKind.shelf => 0,
+    };
     Widget item(LibrarySection s, IconData icon) => ListTile(
-          leading: Icon(icon),
-          title: Text(s.title),
-          trailing: Text('${countOf(s.kind)}'),
-          selected: selected == s,
-          onTap: () => onSelect(s),
-        );
+      leading: Icon(icon),
+      title: Text(s.title),
+      trailing: Text('${countOf(s.kind)}'),
+      selected: selected == s,
+      onTap: () => onSelect(s),
+    );
     return SafeArea(
-      child: ListView(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Row(children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.asset('images/icon.png', width: 40, height: 40),
+      child: ListView(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.asset('images/icon.png', width: 40, height: 40),
+                ),
+                const SizedBox(width: 12),
+                Text('Library', style: Theme.of(context).textTheme.titleLarge),
+              ],
             ),
-            const SizedBox(width: 12),
-            Text('Library', style: Theme.of(context).textTheme.titleLarge),
-          ]),
-        ),
-        item(LibrarySection.books, Icons.menu_book_outlined),
-        item(LibrarySection.recent, Icons.history),
-        item(LibrarySection.favorites, Icons.favorite_border),
-        item(LibrarySection.deleted, Icons.delete_outline),
-        ListTile(
-          leading: const Icon(Icons.edit_note),
-          title: const Text('Notes'),
-          onTap: () => onOpenScreen(const AnnotationsScreen(notesOnly: true)),
-        ),
-        ListTile(
-          leading: const Icon(Icons.border_color_outlined),
-          title: const Text('Highlights'),
-          onTap: () => onOpenScreen(const AnnotationsScreen(notesOnly: false)),
-        ),
-        const Divider(),
-        ListTile(
-          title: Text('Shelves', style: Theme.of(context).textTheme.labelLarge),
-          trailing: IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'New shelf',
-            onPressed: () async {
-              final name = await askText(context, 'New shelf', '');
-              if (name != null && name.trim().isNotEmpty) await db.addShelf(name.trim());
-            },
           ),
-        ),
-        for (final s in shelves)
+          item(LibrarySection.books, Icons.menu_book_outlined),
+          item(LibrarySection.recent, Icons.history),
+          item(LibrarySection.favorites, Icons.favorite_border),
+          item(LibrarySection.deleted, Icons.delete_outline),
           ListTile(
-            leading: const Icon(Icons.shelves),
-            title: Text(s.name),
-            trailing: Text('${shelfBooks[s.id]?.length ?? 0}'),
-            selected: selected.kind == SectionKind.shelf && selected.shelfId == s.id,
-            onTap: () => onSelect(LibrarySection(SectionKind.shelf, shelfId: s.id, shelfName: s.name)),
-            onLongPress: () => _shelfMenu(context, s),
+            leading: const Icon(Icons.edit_note),
+            title: const Text('Notes'),
+            onTap: () => onOpenScreen(const AnnotationsScreen(notesOnly: true)),
           ),
-        const Divider(),
-        ListTile(
-          leading: const Icon(Icons.local_library_outlined),
-          title: const Text('OPDS catalogs'),
-          onTap: () => onOpenScreen(const OpdsCatalogsScreen()),
-        ),
-        ListTile(
-          leading: const Icon(Icons.folder_outlined),
-          title: const Text('Library folders'),
-          onTap: () => onOpenScreen(const FoldersScreen()),
-        ),
-        ListTile(
-          leading: const Icon(Icons.menu_book_outlined),
-          title: const Text('Dictionaries'),
-          onTap: () => onOpenScreen(const DictionariesScreen()),
-        ),
-        ListTile(
-          leading: const Icon(Icons.sync),
-          title: const Text('Progress sync'),
-          onTap: () => onOpenScreen(const KoSyncSettingsScreen()),
-        ),
-      ]),
+          ListTile(
+            leading: const Icon(Icons.border_color_outlined),
+            title: const Text('Highlights'),
+            onTap: () => onOpenScreen(const AnnotationsScreen(notesOnly: false)),
+          ),
+          const Divider(),
+          ListTile(
+            title: Text('Shelves', style: Theme.of(context).textTheme.labelLarge),
+            trailing: IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: 'New shelf',
+              onPressed: () async {
+                final name = await askText(context, 'New shelf', '');
+                if (name != null && name.trim().isNotEmpty) await db.addShelf(name.trim());
+              },
+            ),
+          ),
+          for (final s in shelves)
+            ListTile(
+              leading: const Icon(Icons.shelves),
+              title: Text(s.name),
+              trailing: Text('${shelfBooks[s.id]?.length ?? 0}'),
+              selected: selected.kind == SectionKind.shelf && selected.shelfId == s.id,
+              onTap: () => onSelect(LibrarySection(SectionKind.shelf, shelfId: s.id, shelfName: s.name)),
+              onLongPress: () => _shelfMenu(context, s),
+            ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.local_library_outlined),
+            title: const Text('OPDS catalogs'),
+            onTap: () => onOpenScreen(const OpdsCatalogsScreen()),
+          ),
+          ListTile(
+            leading: const Icon(Icons.folder_outlined),
+            title: const Text('Library folders'),
+            onTap: () => onOpenScreen(const FoldersScreen()),
+          ),
+          ListTile(
+            leading: const Icon(Icons.menu_book_outlined),
+            title: const Text('Dictionaries'),
+            onTap: () => onOpenScreen(const DictionariesScreen()),
+          ),
+          ListTile(
+            leading: const Icon(Icons.sync),
+            title: const Text('Progress sync'),
+            onTap: () => onOpenScreen(const KoSyncSettingsScreen()),
+          ),
+        ],
+      ),
     );
   }
 
@@ -491,18 +540,21 @@ class _Sidebar extends StatelessWidget {
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (sheet) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.edit_outlined),
-            title: const Text('Rename shelf'),
-            onTap: () => Navigator.pop(sheet, 'rename'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.delete_outline),
-            title: const Text('Delete shelf (books stay in the library)'),
-            onTap: () => Navigator.pop(sheet, 'delete'),
-          ),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Rename shelf'),
+              onTap: () => Navigator.pop(sheet, 'rename'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Delete shelf (books stay in the library)'),
+              onTap: () => Navigator.pop(sheet, 'delete'),
+            ),
+          ],
+        ),
       ),
     );
     if (!context.mounted) return;

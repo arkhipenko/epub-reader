@@ -94,9 +94,15 @@ class LibraryScanner {
   final ValueNotifier<ScanProgress> progress = ValueNotifier(const ScanProgress());
   Future<void>? _running;
 
+  /// End of the last completed scan (null: none in this run of the app).
+  DateTime? lastScan;
+
   /// Scans [folders] (and the app's own book folder). A second call while a
   /// scan runs returns the running scan.
-  Future<void> scan(List<String> folders) => _running ??= _scan(folders).whenComplete(() => _running = null);
+  Future<void> scan(List<String> folders) => _running ??= _scan(folders).whenComplete(() {
+    _running = null;
+    lastScan = DateTime.now();
+  });
 
   Future<void> _scan(List<String> folders) async {
     progress.value = const ScanProgress(running: true);
@@ -172,17 +178,19 @@ class LibraryScanner {
     }
     if (info == null) return false;
     final fileName = f.path.split('/').last;
-    await db.saveScannedBook(stats.copyWith(
-      id: Value(id),
-      title: Value(info.title.isEmpty ? fileName : info.title),
-      authors: Value(info.authors),
-      format: Value(info.format),
-      language: Value(info.language),
-      series: Value(info.series),
-      seriesNumber: Value(info.seriesNumber),
-      description: Value(info.description),
-      coverPath: Value(info.hasCover ? coverPath : null),
-    ));
+    await db.saveScannedBook(
+      stats.copyWith(
+        id: Value(id),
+        title: Value(info.title.isEmpty ? fileName : info.title),
+        authors: Value(info.authors),
+        format: Value(info.format),
+        language: Value(info.language),
+        series: Value(info.series),
+        seriesNumber: Value(info.seriesNumber),
+        description: Value(info.description),
+        coverPath: Value(info.hasCover ? coverPath : null),
+      ),
+    );
     return existing == null;
   }
 

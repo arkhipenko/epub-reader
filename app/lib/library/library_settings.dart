@@ -57,20 +57,15 @@ class LibrarySettings {
     String? Function()? downloadFolder,
     LibraryView? view,
     LibrarySort? sort,
-  }) =>
-      LibrarySettings(
-        folders: folders ?? this.folders,
-        downloadFolder: downloadFolder != null ? downloadFolder() : this.downloadFolder,
-        view: view ?? this.view,
-        sort: sort ?? this.sort,
-      );
+  }) => LibrarySettings(
+    folders: folders ?? this.folders,
+    downloadFolder: downloadFolder != null ? downloadFolder() : this.downloadFolder,
+    view: view ?? this.view,
+    sort: sort ?? this.sort,
+  );
 
-  String encode() => jsonEncode({
-        'folders': folders,
-        'downloadFolder': downloadFolder,
-        'view': view.name,
-        'sort': sort.name,
-      });
+  String encode() =>
+      jsonEncode({'folders': folders, 'downloadFolder': downloadFolder, 'view': view.name, 'sort': sort.name});
 
   static LibrarySettings decode(String? text) {
     if (text == null) return const LibrarySettings();

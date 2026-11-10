@@ -8,6 +8,7 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 
 import '../data/database.dart';
+import '../reader/power.dart';
 import 'stardict.dart';
 
 class DictSettings {
@@ -19,11 +20,8 @@ class DictSettings {
   final List<String> order;
   final Set<String> disabled;
 
-  DictSettings copyWith({List<String>? folders, List<String>? order, Set<String>? disabled}) => DictSettings(
-        folders: folders ?? this.folders,
-        order: order ?? this.order,
-        disabled: disabled ?? this.disabled,
-      );
+  DictSettings copyWith({List<String>? folders, List<String>? order, Set<String>? disabled}) =>
+      DictSettings(folders: folders ?? this.folders, order: order ?? this.order, disabled: disabled ?? this.disabled);
 
   String encode() => jsonEncode({'folders': folders, 'order': order, 'disabled': disabled.toList()});
 
@@ -88,6 +86,8 @@ class DictionaryService {
   final AppDatabase db;
   final ValueNotifier<DictSettings> settings;
   _DictWorker? _worker;
+  Timer? _idle;
+  int _busy = 0;
 
   /// Discovered dictionaries in the user's order.
   final ValueNotifier<List<StarDictInfo>> dictionaries = ValueNotifier(const []);
@@ -119,9 +119,9 @@ class DictionaryService {
     }
 
     return [...infos]..sort((a, b) {
-        final r = rank(a).compareTo(rank(b));
-        return r != 0 ? r : a.name.toLowerCase().compareTo(b.name.toLowerCase());
-      });
+      final r = rank(a).compareTo(rank(b));
+      return r != 0 ? r : a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
   }
 
   /// Looks [selection] up in the enabled dictionaries, in order.
@@ -133,21 +133,42 @@ class DictionaryService {
         if (!settings.value.disabled.contains(d.ifoPath)) d.ifoPath,
     ];
     if (enabled.isEmpty) return const [];
-    _worker ??= await _DictWorker.start();
-    return _worker!.lookup(enabled, variants);
+    _idle?.cancel();
+    _busy++;
+    try {
+      _worker ??= await _DictWorker.start();
+      return await _worker!.lookup(enabled, variants);
+    } finally {
+      _busy--;
+      // The dictionary process holds the indexes in memory. Stop it when
+      // it has been idle for a while; the next lookup starts it again.
+      _idle = Timer(kDictionaryIdle, () {
+        if (_busy > 0) return;
+        _worker?.dispose();
+        _worker = null;
+      });
+    }
   }
 }
 
 class _DictWorker {
-  _DictWorker(this._send);
+  _DictWorker(this._send, this._isolate, this._receive);
 
   final SendPort _send;
+  final Isolate _isolate;
+  final ReceivePort _receive;
+
+  void dispose() {
+    _receive.close();
+    _isolate.kill(priority: Isolate.immediate);
+  }
+
   final Map<int, Completer<List<DictResult>>> _pending = {};
   int _next = 1;
 
   static Future<_DictWorker> start() async {
     final receive = ReceivePort();
-    await Isolate.spawn(_main, receive.sendPort, debugName: 'dictionaries');
+    final isolate = await Isolate.spawn(_main, receive.sendPort, debugName: 'dictionaries');
     final ready = Completer<SendPort>();
     late final _DictWorker w;
     receive.listen((m) {
@@ -162,7 +183,7 @@ class _DictWorker {
           DictResult(dictionary: r[0] as String, word: r[1] as String, text: r[2] as String),
       ]);
     });
-    w = _DictWorker(await ready.future);
+    w = _DictWorker(await ready.future, isolate, receive);
     return w;
   }
 

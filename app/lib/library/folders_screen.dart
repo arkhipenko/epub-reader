@@ -85,51 +85,56 @@ class _FoldersScreenState extends State<FoldersScreen> with WidgetsBindingObserv
                   }
                 : null,
           ),
-          body: ListView(padding: const EdgeInsets.only(bottom: 96), children: [
-            if (_access == false)
-              MaterialBanner(
-                leading: const Icon(Icons.folder_off_outlined),
-                content: const Text('To find book files in your folders, allow this app to access all files. '
-                    'Books open in place; the app does not copy them.'),
-                actions: [
-                  FilledButton(
-                    onPressed: () async {
-                      await requestStorageAccess();
-                      await _check();
-                    },
-                    child: const Text('Allow'),
+          body: ListView(
+            padding: const EdgeInsets.only(bottom: 96),
+            children: [
+              if (_access == false)
+                MaterialBanner(
+                  leading: const Icon(Icons.folder_off_outlined),
+                  content: const Text(
+                    'To find book files in your folders, allow this app to access all files. '
+                    'Books open in place; the app does not copy them.',
                   ),
-                ],
-              ),
-            const ListTile(
-              title: Text('Scanned folders'),
-              subtitle: Text('EPUB and FB2 files in these folders and their subfolders show in the library.'),
-            ),
-            for (final f in s.folders)
-              ListTile(
-                leading: Icon(Directory(f).existsSync() ? Icons.folder : Icons.folder_off),
-                title: Text(f),
-                subtitle: Directory(f).existsSync() ? null : const Text('Folder not found'),
-                trailing: IconButton(
-                  icon: const Icon(Icons.remove_circle_outline),
-                  tooltip: 'Remove',
-                  onPressed: () => save(s.copyWith(folders: [...s.folders]..remove(f))),
+                  actions: [
+                    FilledButton(
+                      onPressed: () async {
+                        await requestStorageAccess();
+                        await _check();
+                      },
+                      child: const Text('Allow'),
+                    ),
+                  ],
                 ),
+              const ListTile(
+                title: Text('Scanned folders'),
+                subtitle: Text('EPUB and FB2 files in these folders and their subfolders show in the library.'),
               ),
-            if (s.folders.isEmpty) const ListTile(title: Text('No folders.')),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.download),
-              title: const Text('Download folder'),
-              subtitle: Text(s.effectiveDownloadFolder ?? 'App storage (add a folder to choose one)'),
-              onTap: _access == true
-                  ? () async {
-                      final dir = await pickFolder(context);
-                      if (dir != null) await services.updateLibrary(s.copyWith(downloadFolder: () => dir));
-                    }
-                  : null,
-            ),
-          ]),
+              for (final f in s.folders)
+                ListTile(
+                  leading: Icon(Directory(f).existsSync() ? Icons.folder : Icons.folder_off),
+                  title: Text(f),
+                  subtitle: Directory(f).existsSync() ? null : const Text('Folder not found'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    tooltip: 'Remove',
+                    onPressed: () => save(s.copyWith(folders: [...s.folders]..remove(f))),
+                  ),
+                ),
+              if (s.folders.isEmpty) const ListTile(title: Text('No folders.')),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.download),
+                title: const Text('Download folder'),
+                subtitle: Text(s.effectiveDownloadFolder ?? 'App storage (add a folder to choose one)'),
+                onTap: _access == true
+                    ? () async {
+                        final dir = await pickFolder(context);
+                        if (dir != null) await services.updateLibrary(s.copyWith(downloadFolder: () => dir));
+                      }
+                    : null,
+              ),
+            ],
+          ),
         );
       },
     );
@@ -155,12 +160,13 @@ class _FolderPickerState extends State<_FolderPicker> {
 
   List<Directory> _children() {
     try {
-      final list = Directory(_dir)
-          .listSync(followLinks: false)
-          .whereType<Directory>()
-          .where((d) => !d.path.split('/').last.startsWith('.'))
-          .toList()
-        ..sort((a, b) => a.path.toLowerCase().compareTo(b.path.toLowerCase()));
+      final list =
+          Directory(_dir)
+              .listSync(followLinks: false)
+              .whereType<Directory>()
+              .where((d) => !d.path.split('/').last.startsWith('.'))
+              .toList()
+            ..sort((a, b) => a.path.toLowerCase().compareTo(b.path.toLowerCase()));
       return list;
     } on FileSystemException {
       return const [];
@@ -227,36 +233,37 @@ class _FolderPickerState extends State<_FolderPicker> {
           ),
         ],
       ),
-      body: Column(children: [
-        ListTile(
-          leading: const Icon(Icons.folder_open),
-          title: Text(_dir, maxLines: 2, overflow: TextOverflow.ellipsis),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: ListView(children: [
-            if (!atRoot)
-              ListTile(
-                leading: const Icon(Icons.arrow_upward),
-                title: const Text('..'),
-                onTap: () => setState(() => _dir = parent),
-              ),
-            for (final d in children)
-              ListTile(
-                leading: const Icon(Icons.folder),
-                title: Text(d.path.split('/').last),
-                onTap: () => setState(() => _dir = d.path),
-              ),
-          ]),
-        ),
-      ]),
+      body: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.folder_open),
+            title: Text(_dir, maxLines: 2, overflow: TextOverflow.ellipsis),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView(
+              children: [
+                if (!atRoot)
+                  ListTile(
+                    leading: const Icon(Icons.arrow_upward),
+                    title: const Text('..'),
+                    onTap: () => setState(() => _dir = parent),
+                  ),
+                for (final d in children)
+                  ListTile(
+                    leading: const Icon(Icons.folder),
+                    title: Text(d.path.split('/').last),
+                    onTap: () => setState(() => _dir = d.path),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: FilledButton(
-            onPressed: () => Navigator.pop(context, _dir),
-            child: const Text('Use this folder'),
-          ),
+          child: FilledButton(onPressed: () => Navigator.pop(context, _dir), child: const Text('Use this folder')),
         ),
       ),
     );

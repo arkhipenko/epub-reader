@@ -76,22 +76,22 @@ class ProgressUpdate {
   final Map<String, String>? metadata;
 
   Map<String, Object?> toJson() => {
-        'document': document,
-        if (metadata != null) 'metadata': metadata,
-        'progress': progress,
-        'percentage': percentage,
-        'device': device,
-        'device_id': deviceId,
-      };
+    'document': document,
+    if (metadata != null) 'metadata': metadata,
+    'progress': progress,
+    'percentage': percentage,
+    'device': device,
+    'device_id': deviceId,
+  };
 
   static ProgressUpdate fromJson(Map<String, Object?> j) => ProgressUpdate(
-        document: j['document'] as String,
-        progress: j['progress'] as String,
-        percentage: (j['percentage'] as num).toDouble(),
-        device: j['device'] as String,
-        deviceId: j['device_id'] as String,
-        metadata: (j['metadata'] as Map?)?.cast<String, String>(),
-      );
+    document: j['document'] as String,
+    progress: j['progress'] as String,
+    percentage: (j['percentage'] as num).toDouble(),
+    device: j['device'] as String,
+    deviceId: j['device_id'] as String,
+    metadata: (j['metadata'] as Map?)?.cast<String, String>(),
+  );
 }
 
 class _Response {
@@ -109,8 +109,8 @@ class _Response {
 
 class KoSyncClient {
   KoSyncClient(String serverUrl, {HttpClient? httpClient})
-      : _base = Uri.parse(serverUrl.endsWith('/') ? serverUrl : '$serverUrl/'),
-        _http = httpClient ?? HttpClient();
+    : _base = Uri.parse(serverUrl.endsWith('/') ? serverUrl : '$serverUrl/'),
+      _http = httpClient ?? HttpClient();
 
   final Uri _base;
   final HttpClient _http;
@@ -165,8 +165,12 @@ class KoSyncClient {
 
   /// Registers a new user. [userkey] is md5 of the password.
   Future<void> register(String username, String userkey) async {
-    final r = await _send('POST', 'users/create',
-        body: {'username': username, 'password': userkey}, timeout: authTimeout);
+    final r = await _send(
+      'POST',
+      'users/create',
+      body: {'username': username, 'password': userkey},
+      timeout: authTimeout,
+    );
     if (r.status != 201) throw KoSyncException(r.message('Registration failed.'), status: r.status);
   }
 
@@ -177,15 +181,26 @@ class KoSyncClient {
   }
 
   Future<void> updateProgress(String username, String userkey, ProgressUpdate update) async {
-    final r = await _send('PUT', 'syncs/progress',
-        body: update.toJson(), user: username, key: userkey, timeout: progressTimeout);
+    final r = await _send(
+      'PUT',
+      'syncs/progress',
+      body: update.toJson(),
+      user: username,
+      key: userkey,
+      timeout: progressTimeout,
+    );
     if (r.status != 200) throw KoSyncException(r.message('Progress update failed.'), status: r.status);
   }
 
   /// Returns null when the server has no progress for [document].
   Future<RemoteProgress?> getProgress(String username, String userkey, String document) async {
-    final r = await _send('GET', 'syncs/progress/${Uri.encodeComponent(document)}',
-        user: username, key: userkey, timeout: progressTimeout);
+    final r = await _send(
+      'GET',
+      'syncs/progress/${Uri.encodeComponent(document)}',
+      user: username,
+      key: userkey,
+      timeout: progressTimeout,
+    );
     if (r.status != 200) throw KoSyncException(r.message('Progress request failed.'), status: r.status);
     final b = r.body;
     if (b is! Map || b['percentage'] == null) return null;

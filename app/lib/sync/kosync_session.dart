@@ -22,24 +22,10 @@ class PushResult {
 }
 
 class PullResult {
-  const PullResult.decision(PullDecision this.decision)
-      : notLoggedIn = false,
-        skipped = false,
-        error = null;
-  const PullResult.notLoggedIn()
-      : decision = null,
-        notLoggedIn = true,
-        skipped = false,
-        error = null;
-  const PullResult.skipped()
-      : decision = null,
-        notLoggedIn = false,
-        skipped = true,
-        error = null;
-  const PullResult.failed(String this.error)
-      : decision = null,
-        notLoggedIn = false,
-        skipped = false;
+  const PullResult.decision(PullDecision this.decision) : notLoggedIn = false, skipped = false, error = null;
+  const PullResult.notLoggedIn() : decision = null, notLoggedIn = true, skipped = false, error = null;
+  const PullResult.skipped() : decision = null, notLoggedIn = false, skipped = true, error = null;
+  const PullResult.failed(String this.error) : decision = null, notLoggedIn = false, skipped = false;
 
   final PullDecision? decision;
   final bool notLoggedIn;
@@ -58,12 +44,8 @@ class LocalProgress {
 }
 
 class KoSyncSession {
-  KoSyncSession({
-    required this.service,
-    required this.documentKey,
-    this.metadata,
-    DateTime Function()? clock,
-  }) : _clock = clock ?? DateTime.now;
+  KoSyncSession({required this.service, required this.documentKey, this.metadata, DateTime Function()? clock})
+    : _clock = clock ?? DateTime.now;
 
   final KoSyncService service;
   final String documentKey;
@@ -83,13 +65,13 @@ class KoSyncSession {
   bool _debounced(DateTime? last) => last != null && _clock().difference(last) <= kSyncDebounce;
 
   ProgressUpdate _update(LocalProgress p) => ProgressUpdate(
-        document: documentKey,
-        progress: p.xpointer,
-        percentage: p.percent,
-        device: service.deviceName,
-        deviceId: service.deviceId,
-        metadata: service.current.sendMetadata ? metadata : null,
-      );
+    document: documentKey,
+    progress: p.xpointer,
+    percentage: p.percent,
+    device: service.deviceName,
+    deviceId: service.deviceId,
+    metadata: service.current.sendMetadata ? metadata : null,
+  );
 
   Future<PushResult> push(LocalProgress p, {bool interactive = false}) async {
     if (!service.current.isLoggedIn) return const PushResult(PushOutcome.notLoggedIn);
@@ -116,17 +98,19 @@ class KoSyncSession {
     try {
       final remote = await service.fetch(documentKey);
       final s = service.current;
-      return PullResult.decision(decidePull(
-        remote: remote,
-        localXPointer: p.xpointer,
-        localPercent: p.percent,
-        deviceName: service.deviceName,
-        deviceId: service.deviceId,
-        lastPageTurn: lastPageTurn,
-        interactive: interactive,
-        forward: s.syncForward,
-        backward: s.syncBackward,
-      ));
+      return PullResult.decision(
+        decidePull(
+          remote: remote,
+          localXPointer: p.xpointer,
+          localPercent: p.percent,
+          deviceName: service.deviceName,
+          deviceId: service.deviceId,
+          lastPageTurn: lastPageTurn,
+          interactive: interactive,
+          forward: s.syncForward,
+          backward: s.syncBackward,
+        ),
+      );
     } on KoSyncException catch (e) {
       return PullResult.failed(e.toString());
     }

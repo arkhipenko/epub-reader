@@ -46,6 +46,9 @@ const List<ReaderTheme> kReaderThemes = [
   ReaderTheme(id: 'dark', name: 'Dark', background: Color(0xFF2C2F31), text: Color(0xFFFFFFFF), isDark: true),
   ReaderTheme(id: 'sepia', name: 'Sepia', background: Color(0xFFE9D8BC), text: Color(0xFF594429), isDark: false),
   ReaderTheme(id: 'green', name: 'Green', background: Color(0xFFC5E7CF), text: Color(0xFF36503E), isDark: false),
+  // Not in Koodo: pure black, so OLED screens switch the background pixels
+  // off. Light grey text is less harsh than white on black.
+  ReaderTheme(id: 'black', name: 'Black (OLED)', background: Color(0xFF000000), text: Color(0xFFD0D0D0), isDark: true),
 ];
 
 ReaderTheme readerThemeById(String id) =>
@@ -73,5 +76,4 @@ const List<AccentColor> kAccentColors = [
   AccentColor('slate', 'Slate', Color(0xFF64748B)),
 ];
 
-AccentColor accentById(String id) =>
-    kAccentColors.firstWhere((a) => a.id == id, orElse: () => kAccentColors.first);
+AccentColor accentById(String id) => kAccentColors.firstWhere((a) => a.id == id, orElse: () => kAccentColors.first);

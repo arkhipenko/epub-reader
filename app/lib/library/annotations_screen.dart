@@ -46,17 +46,24 @@ class AnnotationsScreen extends StatelessWidget {
               final (a, b) = list[i];
               return ListTile(
                 leading: Container(width: 6, height: 48, color: highlightColor(a.color)),
-                title: Text(a.textContent, maxLines: 4, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontStyle: FontStyle.italic)),
-                subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  if ((a.note ?? '').isNotEmpty) Text(a.note!, style: text.bodyMedium),
-                  Text(
-                    [b.title, if (a.chapter.isNotEmpty) a.chapter].join('  -  '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.bodySmall,
-                  ),
-                ]),
+                title: Text(
+                  a.textContent,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontStyle: FontStyle.italic),
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if ((a.note ?? '').isNotEmpty) Text(a.note!, style: text.bodyMedium),
+                    Text(
+                      [b.title, if (a.chapter.isNotEmpty) a.chapter].join('  -  '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodySmall,
+                    ),
+                  ],
+                ),
                 onTap: () async {
                   if (!await File(b.path).exists()) {
                     if (context.mounted) {
@@ -66,9 +73,11 @@ class AnnotationsScreen extends StatelessWidget {
                     return;
                   }
                   if (!context.mounted) return;
-                  await Navigator.of(context).push(MaterialPageRoute<void>(
-                    builder: (_) => ReaderScreen(path: b.path, jumpTo: a.page),
-                  ));
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ReaderScreen(path: b.path, jumpTo: a.page),
+                    ),
+                  );
                 },
               );
             },

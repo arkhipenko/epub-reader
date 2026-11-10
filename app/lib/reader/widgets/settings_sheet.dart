@@ -1,7 +1,9 @@
 // Reading settings panel (Koodo right panel; a bottom sheet on phones).
 import 'package:flutter/material.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 
 import '../../app_services.dart';
+import '../power.dart';
 import '../reader_settings.dart';
 import '../reader_theme.dart';
 import '../tap_zones.dart';
@@ -21,24 +23,15 @@ Future<void> showReaderSettings(BuildContext context, {required List<String> fon
       maxChildSize: 0.9,
       builder: (context, scroll) => ValueListenableBuilder<ReaderSettings>(
         valueListenable: services.settings,
-        builder: (context, s, _) => _SettingsBody(
-          scroll: scroll,
-          settings: s,
-          fontFaces: fontFaces,
-          onChanged: services.updateSettings,
-        ),
+        builder: (context, s, _) =>
+            _SettingsBody(scroll: scroll, settings: s, fontFaces: fontFaces, onChanged: services.updateSettings),
       ),
     ),
   );
 }
 
 class _SettingsBody extends StatelessWidget {
-  const _SettingsBody({
-    required this.scroll,
-    required this.settings,
-    required this.fontFaces,
-    required this.onChanged,
-  });
+  const _SettingsBody({required this.scroll, required this.settings, required this.fontFaces, required this.onChanged});
 
   final ScrollController scroll;
   final ReaderSettings settings;
@@ -50,35 +43,70 @@ class _SettingsBody extends StatelessWidget {
     final s = settings;
     final text = Theme.of(context).textTheme;
     Widget label(String t) => Padding(
-          padding: const EdgeInsets.only(top: 16, bottom: 4),
-          child: Text(t, style: text.labelLarge),
-        );
+      padding: const EdgeInsets.only(top: 16, bottom: 4),
+      child: Text(t, style: text.labelLarge),
+    );
     return ListView(
       controller: scroll,
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
       children: [
         label('Theme'),
-        Row(
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
           children: [
             for (final t in kReaderThemes)
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: _ThemeSwatch(
-                  theme: t,
-                  selected: t.id == s.themeId,
-                  onTap: () => onChanged(s.copyWith(themeId: t.id)),
-                ),
+              _ThemeSwatch(
+                theme: t,
+                selected: t.id == s.themeId,
+                onTap: () => onChanged(s.copyWith(themeId: t.id)),
               ),
           ],
+        ),
+        label('Brightness'),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Use system brightness'),
+          subtitle: const Text('Or slide up and down along the left edge of the page'),
+          value: s.brightness == null,
+          onChanged: (system) async {
+            double? v;
+            if (!system) {
+              try {
+                v = await ScreenBrightness.instance.application;
+              } catch (_) {
+                v = 0.5;
+              }
+            }
+            onChanged(s.copyWith(brightness: () => v));
+          },
+        ),
+        if (s.brightness != null)
+          _BrightnessSlider(
+            value: s.brightness!,
+            onChangeEnd: (v) => onChanged(s.copyWith(brightness: () => v)),
+          ),
+        label('Keep the screen on'),
+        DropdownButton<int>(
+          isExpanded: true,
+          value: kScreenTimeoutChoices.contains(s.screenTimeoutMinutes) ? s.screenTimeoutMinutes : 0,
+          items: [
+            for (final m in kScreenTimeoutChoices)
+              DropdownMenuItem(
+                value: m,
+                child: Text(m == 0 ? 'System setting' : '$m minutes after the last page turn'),
+              ),
+          ],
+          onChanged: (m) {
+            if (m != null) onChanged(s.copyWith(screenTimeoutMinutes: m));
+          },
         ),
         label('Font'),
         DropdownButton<String>(
           isExpanded: true,
           value: fontFaces.contains(s.fontFace) ? s.fontFace : null,
           hint: Text(s.fontFace),
-          items: [
-            for (final f in fontFaces) DropdownMenuItem(value: f, child: Text(f)),
-          ],
+          items: [for (final f in fontFaces) DropdownMenuItem(value: f, child: Text(f))],
           onChanged: (f) {
             if (f != null) onChanged(s.copyWith(fontFace: f));
           },
@@ -145,9 +173,7 @@ class _SettingsBody extends StatelessWidget {
         DropdownButton<TapLayout>(
           isExpanded: true,
           value: s.tapLayout,
-          items: [
-            for (final l in TapLayout.values) DropdownMenuItem(value: l, child: Text(l.label)),
-          ],
+          items: [for (final l in TapLayout.values) DropdownMenuItem(value: l, child: Text(l.label))],
           onChanged: (l) {
             if (l != null) onChanged(s.copyWith(tapLayout: l));
           },
@@ -200,6 +226,48 @@ class _SettingsBody extends StatelessWidget {
   }
 }
 
+/// Brightness slider: previews while dragging, saves on release.
+class _BrightnessSlider extends StatefulWidget {
+  const _BrightnessSlider({required this.value, required this.onChangeEnd});
+
+  final double value;
+  final ValueChanged<double> onChangeEnd;
+
+  @override
+  State<_BrightnessSlider> createState() => _BrightnessSliderState();
+}
+
+class _BrightnessSliderState extends State<_BrightnessSlider> {
+  double? _drag;
+
+  @override
+  Widget build(BuildContext context) {
+    final v = (_drag ?? widget.value).clamp(0.01, 1.0);
+    return Row(
+      children: [
+        const Icon(Icons.brightness_low),
+        Expanded(
+          child: Slider(
+            value: v,
+            min: 0.01,
+            max: 1,
+            label: '${(v * 100).round()}%',
+            onChanged: (x) {
+              setState(() => _drag = x);
+              ScreenBrightness.instance.setApplicationScreenBrightness(x).catchError((_) {});
+            },
+            onChangeEnd: (x) {
+              setState(() => _drag = null);
+              widget.onChangeEnd(x);
+            },
+          ),
+        ),
+        const Icon(Icons.brightness_high),
+      ],
+    );
+  }
+}
+
 class _ThemeSwatch extends StatelessWidget {
   const _ThemeSwatch({required this.theme, required this.selected, required this.onTap});
 
@@ -222,12 +290,12 @@ class _ThemeSwatch extends StatelessWidget {
           decoration: BoxDecoration(
             color: theme.background,
             shape: BoxShape.circle,
-            border: Border.all(
-              color: selected ? accent : Colors.black26,
-              width: selected ? 3 : 1,
-            ),
+            border: Border.all(color: selected ? accent : Colors.black26, width: selected ? 3 : 1),
           ),
-          child: Text('Aa', style: TextStyle(color: theme.text, fontWeight: FontWeight.w600)),
+          child: Text(
+            'Aa',
+            style: TextStyle(color: theme.text, fontWeight: FontWeight.w600),
+          ),
         ),
       ),
     );
@@ -270,41 +338,48 @@ class _SliderRowState extends State<_SliderRow> {
     final step = (widget.max - widget.min) / widget.divisions;
     return Padding(
       padding: const EdgeInsets.only(top: 12),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Text(widget.label, style: Theme.of(context).textTheme.labelLarge),
-          const Spacer(),
-          Text(widget.format(v)),
-        ]),
-        Row(children: [
-          if (widget.stepButtons)
-            IconButton(
-              tooltip: 'Smaller',
-              icon: const Icon(Icons.text_decrease),
-              onPressed: v > widget.min ? () => widget.onChanged((v - step).clamp(widget.min, widget.max)) : null,
-            ),
-          Expanded(
-            child: Slider(
-              value: v,
-              min: widget.min,
-              max: widget.max,
-              divisions: widget.divisions,
-              label: widget.format(v),
-              onChanged: (x) => setState(() => _dragValue = x),
-              onChangeEnd: (x) {
-                setState(() => _dragValue = null);
-                widget.onChanged(x);
-              },
-            ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(widget.label, style: Theme.of(context).textTheme.labelLarge),
+              const Spacer(),
+              Text(widget.format(v)),
+            ],
           ),
-          if (widget.stepButtons)
-            IconButton(
-              tooltip: 'Larger',
-              icon: const Icon(Icons.text_increase),
-              onPressed: v < widget.max ? () => widget.onChanged((v + step).clamp(widget.min, widget.max)) : null,
-            ),
-        ]),
-      ]),
+          Row(
+            children: [
+              if (widget.stepButtons)
+                IconButton(
+                  tooltip: 'Smaller',
+                  icon: const Icon(Icons.text_decrease),
+                  onPressed: v > widget.min ? () => widget.onChanged((v - step).clamp(widget.min, widget.max)) : null,
+                ),
+              Expanded(
+                child: Slider(
+                  value: v,
+                  min: widget.min,
+                  max: widget.max,
+                  divisions: widget.divisions,
+                  label: widget.format(v),
+                  onChanged: (x) => setState(() => _dragValue = x),
+                  onChangeEnd: (x) {
+                    setState(() => _dragValue = null);
+                    widget.onChanged(x);
+                  },
+                ),
+              ),
+              if (widget.stepButtons)
+                IconButton(
+                  tooltip: 'Larger',
+                  icon: const Icon(Icons.text_increase),
+                  onPressed: v < widget.max ? () => widget.onChanged((v + step).clamp(widget.min, widget.max)) : null,
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

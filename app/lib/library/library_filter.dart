@@ -17,12 +17,12 @@ class LibrarySection {
   final String? shelfName;
 
   String get title => switch (kind) {
-        SectionKind.books => 'Books',
-        SectionKind.recent => 'Recent',
-        SectionKind.favorites => 'Favorites',
-        SectionKind.deleted => 'Deleted',
-        SectionKind.shelf => shelfName ?? 'Shelf',
-      };
+    SectionKind.books => 'Books',
+    SectionKind.recent => 'Recent',
+    SectionKind.favorites => 'Favorites',
+    SectionKind.deleted => 'Deleted',
+    SectionKind.shelf => shelfName ?? 'Shelf',
+  };
 
   @override
   bool operator ==(Object other) => other is LibrarySection && other.kind == kind && other.shelfId == shelfId;
@@ -34,9 +34,7 @@ class LibrarySection {
 bool _matches(Book b, String query) {
   if (query.isEmpty) return true;
   final q = query.toLowerCase();
-  return b.title.toLowerCase().contains(q) ||
-      b.authors.toLowerCase().contains(q) ||
-      b.series.toLowerCase().contains(q);
+  return b.title.toLowerCase().contains(q) || b.authors.toLowerCase().contains(q) || b.series.toLowerCase().contains(q);
 }
 
 int _compareText(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());

@@ -34,6 +34,8 @@ class ReaderSettings {
     this.tapLayout = TapLayout.koreader,
     this.showFooter = true,
     this.footerItems = const {FooterItem.clock, FooterItem.pageNumber, FooterItem.chapterPagesLeft},
+    this.brightness,
+    this.screenTimeoutMinutes = 0,
   });
 
   final String fontFace;
@@ -51,6 +53,13 @@ class ReaderSettings {
   final TapLayout tapLayout;
   final bool showFooter;
   final Set<FooterItem> footerItems;
+
+  /// Reader screen brightness 0 to 1, or null for the system brightness.
+  final double? brightness;
+
+  /// Keep the screen on for this many minutes after the last page turn.
+  /// 0 leaves the screen timeout to the system (no wake lock).
+  final int screenTimeoutMinutes;
 
   static const double minFontSize = 10;
   static const double maxFontSize = 48;
@@ -72,22 +81,25 @@ class ReaderSettings {
     TapLayout? tapLayout,
     bool? showFooter,
     Set<FooterItem>? footerItems,
-  }) =>
-      ReaderSettings(
-        fontFace: fontFace ?? this.fontFace,
-        fontSize: fontSize ?? this.fontSize,
-        lineSpacing: lineSpacing ?? this.lineSpacing,
-        marginHorizontal: marginHorizontal ?? this.marginHorizontal,
-        marginVertical: marginVertical ?? this.marginVertical,
-        hyphenation: hyphenation ?? this.hyphenation,
-        embeddedStyles: embeddedStyles ?? this.embeddedStyles,
-        embeddedFonts: embeddedFonts ?? this.embeddedFonts,
-        themeId: themeId ?? this.themeId,
-        accentId: accentId ?? this.accentId,
-        tapLayout: tapLayout ?? this.tapLayout,
-        showFooter: showFooter ?? this.showFooter,
-        footerItems: footerItems ?? this.footerItems,
-      );
+    double? Function()? brightness,
+    int? screenTimeoutMinutes,
+  }) => ReaderSettings(
+    fontFace: fontFace ?? this.fontFace,
+    fontSize: fontSize ?? this.fontSize,
+    lineSpacing: lineSpacing ?? this.lineSpacing,
+    marginHorizontal: marginHorizontal ?? this.marginHorizontal,
+    marginVertical: marginVertical ?? this.marginVertical,
+    hyphenation: hyphenation ?? this.hyphenation,
+    embeddedStyles: embeddedStyles ?? this.embeddedStyles,
+    embeddedFonts: embeddedFonts ?? this.embeddedFonts,
+    themeId: themeId ?? this.themeId,
+    accentId: accentId ?? this.accentId,
+    tapLayout: tapLayout ?? this.tapLayout,
+    showFooter: showFooter ?? this.showFooter,
+    footerItems: footerItems ?? this.footerItems,
+    brightness: brightness != null ? brightness() : this.brightness,
+    screenTimeoutMinutes: screenTimeoutMinutes ?? this.screenTimeoutMinutes,
+  );
 
   /// True when [other] needs a new engine layout (not only a redraw).
   bool layoutDiffers(ReaderSettings other) =>
@@ -101,20 +113,25 @@ class ReaderSettings {
       embeddedFonts != other.embeddedFonts;
 
   Map<String, Object?> toJson() => {
-        'fontFace': fontFace,
-        'fontSize': fontSize,
-        'lineSpacing': lineSpacing,
-        'marginHorizontal': marginHorizontal,
-        'marginVertical': marginVertical,
-        'hyphenation': hyphenation,
-        'embeddedStyles': embeddedStyles,
-        'embeddedFonts': embeddedFonts,
-        'themeId': themeId,
-        'accentId': accentId,
-        'tapLayout': tapLayout.name,
-        'showFooter': showFooter,
-        'footerItems': [for (final i in FooterItem.values) if (footerItems.contains(i)) i.name],
-      };
+    'fontFace': fontFace,
+    'fontSize': fontSize,
+    'lineSpacing': lineSpacing,
+    'marginHorizontal': marginHorizontal,
+    'marginVertical': marginVertical,
+    'hyphenation': hyphenation,
+    'embeddedStyles': embeddedStyles,
+    'embeddedFonts': embeddedFonts,
+    'themeId': themeId,
+    'accentId': accentId,
+    'tapLayout': tapLayout.name,
+    'showFooter': showFooter,
+    'footerItems': [
+      for (final i in FooterItem.values)
+        if (footerItems.contains(i)) i.name,
+    ],
+    'brightness': brightness,
+    'screenTimeoutMinutes': screenTimeoutMinutes,
+  };
 
   /// Reads settings. Missing or bad values fall back to the defaults.
   factory ReaderSettings.fromJson(Map<String, Object?> j) {
@@ -150,6 +167,8 @@ class ReaderSettings {
                   if (i.name == n) i,
             }
           : d.footerItems,
+      brightness: j['brightness'] is num ? (j['brightness'] as num).toDouble().clamp(0.0, 1.0) : null,
+      screenTimeoutMinutes: pick<int>('screenTimeoutMinutes', 0).clamp(0, 24 * 60),
     );
   }
 

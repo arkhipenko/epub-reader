@@ -41,18 +41,24 @@ class PageMarksPainter extends CustomPainter {
         switch (drawer) {
           case HighlightDrawer.lighten:
             // Multiply keeps black text black on the color.
-            canvas.drawRect(r, Paint()
-              ..color = color.withValues(alpha: dark ? 0.35 : 0.55)
-              ..blendMode = dark ? BlendMode.srcOver : BlendMode.multiply);
+            canvas.drawRect(
+              r,
+              Paint()
+                ..color = color.withValues(alpha: dark ? 0.35 : 0.55)
+                ..blendMode = dark ? BlendMode.srcOver : BlendMode.multiply,
+            );
           case HighlightDrawer.underscore:
             canvas.drawRect(Rect.fromLTRB(r.left, r.bottom - 2.5, r.right, r.bottom), Paint()..color = color);
           case HighlightDrawer.strikeout:
             final y = r.center.dy;
             canvas.drawRect(Rect.fromLTRB(r.left, y - 1, r.right, y + 1), Paint()..color = color);
           case HighlightDrawer.invert:
-            canvas.drawRect(r, Paint()
-              ..color = Colors.white
-              ..blendMode = BlendMode.difference);
+            canvas.drawRect(
+              r,
+              Paint()
+                ..color = Colors.white
+                ..blendMode = BlendMode.difference,
+            );
         }
         if (a.note != null && a.note!.isNotEmpty && b == e.value.last) {
           // A small mark at the end of a highlight with a note.
@@ -71,10 +77,13 @@ class PageMarksPainter extends CustomPainter {
       for (final b in hit) {
         final r = _rect(b).inflate(1.5);
         canvas.drawRect(r, Paint()..color = const Color(0x55FF8800));
-        canvas.drawRect(r, Paint()
-          ..color = const Color(0xFFFF8800)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5);
+        canvas.drawRect(
+          r,
+          Paint()
+            ..color = const Color(0xFFFF8800)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5,
+        );
       }
     }
   }

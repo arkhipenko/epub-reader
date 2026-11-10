@@ -24,8 +24,12 @@ const List<XPointerVector> kJulietVectors = [
   XPointerVector('$_p/p[19]/strong[1]/text()[1].0', 7, 'SAMPSON', 'highlight text, up to pos1 (.7)'),
   // "should response on tap gesture": 'GREGORY\nHow! turn thy back and run?'.
   XPointerVector('$_p/p[20]/strong[1]/text()[1].0', 7, 'GREGORY', 'tap gesture, pos0'),
-  XPointerVector('$_p/blockquote[21]/p[1]/text()[1].0', 27, 'How! turn thy back and run?',
-      'tap gesture, up to pos1 (.27)'),
+  XPointerVector(
+    '$_p/blockquote[21]/p[1]/text()[1].0',
+    27,
+    'How! turn thy back and run?',
+    'tap gesture, up to pos1 (.27)',
+  ),
 ];
 
 class VectorResult {
