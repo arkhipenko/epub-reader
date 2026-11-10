@@ -12,7 +12,7 @@ void main() {
   });
 
   test('leaves.epub', () async {
-    expect(await partialMd5OfFile('assets/samples/leaves.epub'), '59d481d168cca6267322f150c5f6a2a3');
+    expect(await partialMd5OfFile('test/fixtures/leaves.epub'), '59d481d168cca6267322f150c5f6a2a3');
   });
 
   test('tall.pdf', () async {
@@ -20,7 +20,7 @@ void main() {
   });
 
   test('file and byte versions agree', () async {
-    final bytes = await File('assets/samples/leaves.epub').readAsBytes();
+    final bytes = await File('test/fixtures/leaves.epub').readAsBytes();
     expect(partialMd5OfBytes(bytes), '59d481d168cca6267322f150c5f6a2a3');
   });
 }

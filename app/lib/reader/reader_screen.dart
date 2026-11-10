@@ -1,24 +1,33 @@
-// The reader: full-screen page, tap zones, swipes, status line, and the
-// menu bars (Koodo layout).
+// The reader: full-screen page, tap zones, swipes, text selection,
+// highlights, bookmarks, links, search, status line and the menu bars
+// (Koodo layout).
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_services.dart';
+import '../data/database.dart';
+import '../dict/dictionary_screens.dart';
 import '../sync/kosync_settings_screen.dart';
 import 'reader_controller.dart';
 import 'tap_zones.dart';
+import 'widgets/annotation_widgets.dart';
 import 'widgets/goto_dialog.dart';
+import 'widgets/page_marks.dart';
 import 'widgets/position_info_sheet.dart';
 import 'widgets/reader_footer.dart';
+import 'widgets/search_sheet.dart';
 import 'widgets/settings_sheet.dart';
 import 'widgets/toc_drawer.dart';
 
 class ReaderScreen extends StatefulWidget {
-  const ReaderScreen({super.key, required this.path});
+  const ReaderScreen({super.key, required this.path, this.jumpTo});
 
   final String path;
+
+  /// Open at this XPointer (for example a note from the library).
+  final String? jumpTo;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -26,9 +35,13 @@ class ReaderScreen extends StatefulWidget {
 
 class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  final _pageKey = GlobalKey();
   ReaderController? _controller;
   StreamSubscription<SyncEvent>? _syncSub;
   bool _showBars = false;
+
+  /// Fixed end of a selection drag, in page pixels.
+  Offset? _anchor;
 
   @override
   void initState() {
@@ -41,7 +54,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_controller == null) {
-      final c = ReaderController(services: ServicesScope.of(context), path: widget.path);
+      final c = ReaderController(services: ServicesScope.of(context), path: widget.path, jumpTo: widget.jumpTo);
       _controller = c;
       _syncSub = c.syncEvents.listen(_onSyncEvent);
     }
@@ -96,10 +109,34 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   // change the page area, and each change lays out the book again.
   void _setBars(bool show) => setState(() => _showBars = show);
 
+  Size get _pageSize => (_pageKey.currentContext?.findRenderObject() as RenderBox?)?.size ?? Size.zero;
+
+  Offset _toPage(Offset local) => _controller!.toPagePixels(local, _pageSize);
+
   void _onTap(TapUpDetails d, Size size) {
     final c = _controller!;
     if (_showBars) {
       _setBars(false);
+      return;
+    }
+    if (c.selection != null) {
+      c.clearSelection();
+      return;
+    }
+    final px = _toPage(d.localPosition);
+    final a = c.annotationAt(px);
+    if (a != null) {
+      _highlightSheet(a);
+      return;
+    }
+    // KOReader DTAP_ZONE_TOP_RIGHT: toggle the bookmark of the page.
+    if (d.localPosition.dx > size.width * 7 / 8 && d.localPosition.dy < size.height / 8) {
+      c.toggleBookmark();
+      return;
+    }
+    final link = c.linkAt(px);
+    if (link != null) {
+      c.followLink(link);
       return;
     }
     switch (tapActionFor(c.settings.tapLayout, d.localPosition, size)) {
@@ -114,9 +151,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   void _onSwipe(DragEndDetails d) {
     final v = d.primaryVelocity ?? 0;
-    if (v.abs() < 200) return;
+    if (v.abs() < 200 || _controller!.selection != null) return;
     // Swipe to the left shows the next page.
     _controller!.turnPage(v < 0 ? 1 : -1);
+  }
+
+  void _highlightSheet(Annotation a) {
+    final c = _controller!;
+    showHighlightSheet(
+      context,
+      a,
+      onUpdate: ({color, drawer, note}) => c.updateAnnotation(a, color: color, drawer: drawer, note: note),
+      onDelete: () => c.deleteAnnotation(a),
+      onDictionary: () => showDictionary(context, a.textContent),
+    );
   }
 
   Future<void> _goto() async {
@@ -137,26 +185,41 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       listenable: c,
       builder: (context, _) {
         final theme = c.theme;
-        return Scaffold(
-          key: _scaffoldKey,
-          backgroundColor: theme.background,
-          drawer: c.isOpen ? TocDrawer(controller: c) : null,
-          drawerEnableOpenDragGesture: false,
-          body: Stack(children: [
-            Positioned.fill(
-              // Keeps text out of a camera cutout.
-              child: SafeArea(
-                child: Column(children: [
-                  Expanded(child: _page(context, c)),
-                  if (c.settings.showFooter && c.isOpen) ReaderFooter(controller: c),
-                ]),
+        return PopScope(
+          canPop: c.selection == null && !c.canGoBack,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            if (c.selection != null) {
+              c.clearSelection();
+            } else if (c.canGoBack) {
+              c.goBack();
+            }
+          },
+          child: Scaffold(
+            key: _scaffoldKey,
+            backgroundColor: theme.background,
+            // The keyboard (search, notes) must not shrink the page: each
+            // size change lays out the whole book again, and page numbers
+            // would change while the keyboard shows.
+            resizeToAvoidBottomInset: false,
+            drawer: c.isOpen ? TocDrawer(controller: c) : null,
+            drawerEnableOpenDragGesture: false,
+            body: Stack(children: [
+              Positioned.fill(
+                // Keeps text out of a camera cutout.
+                child: SafeArea(
+                  child: Column(children: [
+                    Expanded(child: _page(context, c)),
+                    if (c.settings.showFooter && c.isOpen) ReaderFooter(controller: c),
+                  ]),
+                ),
               ),
-            ),
-            if (_showBars && c.isOpen) ...[
-              Positioned(top: 0, left: 0, right: 0, child: _topBar(context, c)),
-              Positioned(bottom: 0, left: 0, right: 0, child: _bottomBar(context, c)),
-            ],
-          ]),
+              if (_showBars && c.isOpen) ...[
+                Positioned(top: 0, left: 0, right: 0, child: _topBar(context, c)),
+                Positioned(bottom: 0, left: 0, right: 0, child: _bottomBar(context, c)),
+              ],
+            ]),
+          ),
         );
       },
     );
@@ -184,16 +247,173 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           content = ColorFiltered(colorFilter: ColorFilter.matrix(c.theme.darkMatrix), child: content);
         }
       }
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapUp: (d) => _onTap(d, size),
-        onHorizontalDragEnd: _onSwipe,
-        child: content,
-      );
+      final scale = c.pixelScale(size);
+      final marks = c.pageMarks;
+      final accent = Theme.of(context).colorScheme.primary;
+      final layers = <Widget>[
+        Positioned.fill(
+          child: GestureDetector(
+            key: _pageKey,
+            behavior: HitTestBehavior.opaque,
+            onTapUp: (d) => _onTap(d, size),
+            onHorizontalDragEnd: _onSwipe,
+            onLongPressStart: (d) {
+              final px = _toPage(d.localPosition);
+              _anchor = px;
+              c.selectWordAt(px);
+            },
+            onLongPressMoveUpdate: (d) {
+              final a = _anchor;
+              if (a != null) c.extendSelection(a, _toPage(d.localPosition));
+            },
+            child: Stack(fit: StackFit.expand, children: [
+              content,
+              if (marks.isNotEmpty)
+                IgnorePointer(
+                  child: CustomPaint(
+                    painter: PageMarksPainter(
+                      marks: marks,
+                      annotations: {for (final a in c.annotations) a.id: a},
+                      scale: scale,
+                      selectionColor: accent,
+                      dark: c.theme.isDark,
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+        ),
+        if (c.pageBookmark != null)
+          Positioned(
+            top: 0,
+            right: 12,
+            child: IgnorePointer(child: Icon(Icons.bookmark, size: 32, color: accent.withValues(alpha: 0.85))),
+          ),
+        ..._selectionLayer(c, scale, size),
+        if (c.search != null) Positioned(left: 8, right: 8, bottom: 8, child: _searchBar(c)),
+        if (c.canGoBack && c.search == null && c.selection == null)
+          Positioned(
+            left: 12,
+            bottom: 12,
+            child: FloatingActionButton.small(
+              heroTag: null,
+              tooltip: 'Back to the place before the link',
+              onPressed: c.goBack,
+              child: const Icon(Icons.undo),
+            ),
+          ),
+      ];
+      return Stack(children: layers);
     });
   }
 
+  /// Handles at both ends of the selection and the selection menu.
+  List<Widget> _selectionLayer(ReaderController c, double scale, Size size) {
+    final sel = c.selection;
+    final boxes = c.pageMarks['sel'];
+    if (sel == null || boxes == null || boxes.isEmpty) return const [];
+    final first = boxes.first;
+    final last = boxes.last;
+    final start = Offset(first.left * scale, first.bottom * scale);
+    final end = Offset(last.right * scale, last.bottom * scale);
+    // Page-pixel points just inside each end, used as the fixed end of a drag.
+    final startInside = Offset(first.left + 1.0, (first.top + first.bottom) / 2);
+    final endInside = Offset(last.right - 1.0, (last.top + last.bottom) / 2);
+
+    Widget handle(Offset at, Offset fixed) => Positioned(
+          left: at.dx - 14,
+          top: at.dy - 4,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanUpdate: (d) {
+              final box = _pageKey.currentContext?.findRenderObject() as RenderBox?;
+              if (box == null) return;
+              // The finger is below the text; aim a little above it.
+              final local = box.globalToLocal(d.globalPosition) - const Offset(0, 24);
+              c.extendSelection(fixed, _toPage(local));
+            },
+            child: SizedBox(
+              width: 28,
+              height: 28,
+              child: Center(
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary, shape: BoxShape.circle),
+                ),
+              ),
+            ),
+          ),
+        );
+
+    // The menu goes to the half of the page that the selection does not use.
+    final selectionInLowerHalf = start.dy > size.height / 2;
+    final menu = SelectionMenu(
+      onHighlight: (color) => c.addHighlight(color: color),
+      onNote: () async {
+        final note = await editNote(context, quote: sel.text);
+        if (note != null) await c.addHighlight(color: 'yellow', note: note);
+      },
+      onCopy: () {
+        Clipboard.setData(ClipboardData(text: sel.text));
+        c.clearSelection();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied.')));
+      },
+      onDictionary: () => showDictionary(context, sel.text),
+      onSearch: () {
+        c.clearSelection();
+        showBookSearch(context, c, initial: sel.text.trim());
+      },
+      onClose: c.clearSelection,
+    );
+    return [
+      handle(start, endInside),
+      handle(end, startInside),
+      Positioned(
+        left: 8,
+        right: 8,
+        top: selectionInLowerHalf ? 16 : null,
+        bottom: selectionInLowerHalf ? null : 16,
+        child: Center(child: menu),
+      ),
+    ];
+  }
+
+  Widget _searchBar(ReaderController c) {
+    final s = c.search!;
+    return Material(
+      elevation: 6,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(children: [
+          IconButton(
+            icon: const Icon(Icons.list),
+            tooltip: 'All results',
+            onPressed: () => showBookSearch(context, c),
+          ),
+          Expanded(
+            child: Text('"${s.query}"  ${s.index + 1} of ${s.hits.length}',
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+          IconButton(
+            icon: const Icon(Icons.keyboard_arrow_up),
+            tooltip: 'Previous result',
+            onPressed: s.index > 0 ? () => c.showSearchHit(s, s.index - 1) : null,
+          ),
+          IconButton(
+            icon: const Icon(Icons.keyboard_arrow_down),
+            tooltip: 'Next result',
+            onPressed: s.index < s.hits.length - 1 ? () => c.showSearchHit(s, s.index + 1) : null,
+          ),
+          IconButton(icon: const Icon(Icons.close), tooltip: 'Close search', onPressed: c.closeSearch),
+        ]),
+      ),
+    );
+  }
+
   Widget _topBar(BuildContext context, ReaderController c) {
+    final bookmarked = c.pageBookmark != null;
     return Material(
       elevation: 3,
       child: SafeArea(
@@ -215,8 +435,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               ),
             ),
             IconButton(
+              icon: Icon(bookmarked ? Icons.bookmark : Icons.bookmark_border),
+              tooltip: bookmarked ? 'Remove bookmark' : 'Add bookmark',
+              onPressed: c.toggleBookmark,
+            ),
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: 'Search in book',
+              onPressed: () {
+                _setBars(false);
+                showBookSearch(context, c);
+              },
+            ),
+            IconButton(
               icon: const Icon(Icons.toc),
-              tooltip: 'Contents',
+              tooltip: 'Contents, bookmarks and notes',
               onPressed: () {
                 _setBars(false);
                 _scaffoldKey.currentState?.openDrawer();
@@ -237,6 +470,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 switch (v) {
                   case 'goto':
                     _goto();
+                  case 'dict':
+                    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const DictionariesScreen()));
                   case 'push':
                     c.pushProgress(interactive: true);
                   case 'pull':
@@ -250,6 +485,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               },
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'goto', child: Text('Go to page')),
+                PopupMenuItem(value: 'dict', child: Text('Dictionaries')),
                 PopupMenuDivider(),
                 PopupMenuItem(value: 'push', child: Text('Push progress from this device')),
                 PopupMenuItem(value: 'pull', child: Text('Pull progress from other devices')),

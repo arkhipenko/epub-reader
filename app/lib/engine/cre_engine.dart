@@ -125,6 +125,69 @@ class OpenResult {
   final List<TocEntry> toc;
 }
 
+/// A text selection: XPointers of its start and end (end excluded) and the text.
+class TextSelection {
+  const TextSelection({required this.text, required this.pos0, required this.pos1});
+
+  final String text;
+  final String pos0;
+  final String pos1;
+}
+
+/// A rectangle in page pixels of the current page.
+class PageRect {
+  const PageRect(this.left, this.top, this.right, this.bottom);
+
+  final int left;
+  final int top;
+  final int right;
+  final int bottom;
+
+  bool contains(double x, double y) => x >= left && x <= right && y >= top && y <= bottom;
+}
+
+class SearchHit {
+  const SearchHit({
+    required this.start,
+    required this.end,
+    required this.page,
+    required this.text,
+    required this.before,
+    required this.after,
+  });
+
+  final String start;
+  final String end;
+
+  /// Page in the current layout.
+  final int page;
+  final String text;
+  final String before;
+  final String after;
+}
+
+/// A link on the current page and its line boxes.
+class PageLink {
+  const PageLink(this.href, this.boxes);
+
+  final String href;
+  final List<PageRect> boxes;
+
+  bool get isInternal => href.startsWith('#');
+}
+
+class LinkTarget {
+  const LinkTarget({required this.href, required this.xpointer});
+
+  final String href;
+
+  /// XPointer of the link element itself.
+  final String xpointer;
+
+  /// Internal links start with "#" in crengine; others go outside the book.
+  bool get isInternal => href.startsWith('#');
+}
+
 /// Library metadata of a book file (KOReader BookInfoManager data).
 class BookFileInfo {
   const BookFileInfo({
@@ -286,6 +349,86 @@ class CreEngine {
 
   Future<void> closeBook() => _call('close');
 
+  /// Selects text between two points of the current page (page pixels).
+  /// Equal points select the word at the point.
+  Future<TextSelection?> select(int x0, int y0, int x1, int y1) async {
+    final r = await _call('select', {'p': [x0, y0, x1, y1]});
+    if (r == null) return null;
+    final j = jsonDecode(r as String) as Map<String, dynamic>;
+    return TextSelection(text: j['text'] as String, pos0: j['pos0'] as String, pos1: j['pos1'] as String);
+  }
+
+  Future<String?> textRange(String pos0, String pos1) async =>
+      (await _call('textRange', {'a': pos0, 'b': pos1})) as String?;
+
+  /// Boxes on the current page for each range. [ranges] maps a key to
+  /// (pos0, pos1). Keys of ranges that are not on the page are left out.
+  Future<Map<String, List<PageRect>>> boxes(Map<String, (String, String)> ranges) async {
+    if (ranges.isEmpty) return const {};
+    final r = (await _call('boxes', {
+      'r': [for (final e in ranges.entries) [e.key, e.value.$1, e.value.$2]],
+    }))! as Map;
+    return {
+      for (final e in r.entries)
+        e.key as String: [
+          for (final b in (e.value as List).cast<List>()) PageRect(b[0] as int, b[1] as int, b[2] as int, b[3] as int),
+        ],
+    };
+  }
+
+  Future<List<SearchHit>> findAll(String pattern, {bool caseInsensitive = true, int maxHits = 1000}) async {
+    final r = await _call('findAll', {'q': pattern, 'ci': caseInsensitive, 'max': maxHits});
+    if (r == null) return const [];
+    return [
+      for (final m in (jsonDecode(r as String) as List).cast<Map<String, dynamic>>())
+        SearchHit(
+          start: m['start'] as String,
+          end: m['end'] as String,
+          page: m['page'] as int,
+          text: m['text'] as String,
+          before: m['before'] as String,
+          after: m['after'] as String,
+        ),
+    ];
+  }
+
+  Future<LinkTarget?> linkAt(int x, int y) async {
+    final r = await _call('linkAt', {'x': x, 'y': y});
+    if (r == null) return null;
+    final j = jsonDecode(r as String) as Map<String, dynamic>;
+    return LinkTarget(href: j['href'] as String, xpointer: j['xpointer'] as String);
+  }
+
+  /// Links on the current page.
+  Future<List<PageLink>> pageLinks() async {
+    final r = await _call('pageLinks');
+    if (r == null) return const [];
+    return [
+      for (final l in (jsonDecode(r as String) as List).cast<Map<String, dynamic>>())
+        PageLink(l['href'] as String, [
+          for (final b in (l['boxes'] as List).cast<List>())
+            PageRect(b[0] as int, b[1] as int, b[2] as int, b[3] as int),
+        ]),
+    ];
+  }
+
+  /// Follows an internal link. Returns the new position, or null.
+  Future<EnginePosition?> gotoLink(String href) async {
+    final r = await _call('gotoLink', {'href': href});
+    return r == null ? null : EnginePosition.fromMap(r as Map);
+  }
+
+  /// Page of each XPointer in the current layout (0: not in the document).
+  Future<Map<String, int>> pagesOf(Iterable<String> xpointers) async {
+    final list = xpointers.toSet().toList();
+    if (list.isEmpty) return const {};
+    final r = (await _call('pagesOf', {'x': list}))! as List;
+    return {for (var i = 0; i < list.length; i++) list[i]: r[i] as int};
+  }
+
+  /// <0 when [a] is before [b], 0 when equal or unknown, >0 when after.
+  Future<int> compare(String a, String b) async => (await _call('compare', {'a': a, 'b': b}))! as int;
+
   /// Reads library metadata without opening the book for reading. Writes
   /// the cover image to [coverOut] when there is one. Returns null when the
   /// engine cannot read the file.
@@ -380,6 +523,41 @@ class _Worker {
         return null;
       case 'bookInfo':
         return _b.bookInfo(a['path'] as String, a['cover'] as String);
+      case 'select':
+        _requireDoc();
+        final p = (a['p'] as List).cast<int>();
+        return _b.docSelect(_doc, p[0], p[1], p[2], p[3]);
+      case 'textRange':
+        _requireDoc();
+        return _b.docTextRange(_doc, a['a'] as String, a['b'] as String);
+      case 'boxes':
+        _requireDoc();
+        final out = <String, Object?>{};
+        for (final r in (a['r'] as List).cast<List>()) {
+          final json = _b.docRangeBoxes(_doc, r[1] as String, r[2] as String);
+          if (json == null) continue;
+          final list = jsonDecode(json) as List;
+          if (list.isNotEmpty) out[r[0] as String] = list;
+        }
+        return out;
+      case 'findAll':
+        _requireDoc();
+        return _b.docFindAll(_doc, a['q'] as String, a['ci'] as bool, a['max'] as int);
+      case 'linkAt':
+        _requireDoc();
+        return _b.docLinkAt(_doc, a['x'] as int, a['y'] as int);
+      case 'pageLinks':
+        _requireDoc();
+        return _b.docPageLinks(_doc);
+      case 'gotoLink':
+        _requireDoc();
+        return _b.docGotoLink(_doc, a['href'] as String) ? _position() : null;
+      case 'pagesOf':
+        _requireDoc();
+        return [for (final x in (a['x'] as List).cast<String>()) _b.docPageOfXPointer(_doc, x)];
+      case 'compare':
+        _requireDoc();
+        return _b.docCompare(_doc, a['a'] as String, a['b'] as String);
     }
     throw EngineException('unknown operation $op');
   }

@@ -32,7 +32,7 @@ enum ChecksumMethod {
 
 class KoSyncSettings {
   const KoSyncSettings({
-    this.serverUrl = defaultServer,
+    this.serverUrl = '',
     this.username,
     this.userkey,
     this.autoSync = false,
@@ -44,10 +44,10 @@ class KoSyncSettings {
     this.deviceName,
   });
 
-  /// The home server. KOReader defaults to the public server instead.
-  static const String defaultServer = 'http://kosync.home.lan:17200';
-
+  /// Server address. Empty until the user sets one (no server is built in).
   final String serverUrl;
+
+  bool get hasServer => serverUrl.trim().isNotEmpty;
   final String? username;
 
   /// md5 of the password. The password itself is not stored.
@@ -66,7 +66,7 @@ class KoSyncSettings {
   /// Name sent as "device". Null uses the device model (KOReader Device.model).
   final String? deviceName;
 
-  bool get isLoggedIn => (username ?? '').isNotEmpty && (userkey ?? '').isNotEmpty;
+  bool get isLoggedIn => hasServer && (username ?? '').isNotEmpty && (userkey ?? '').isNotEmpty;
 
   KoSyncSettings copyWith({
     String? serverUrl,
@@ -113,7 +113,7 @@ class KoSyncSettings {
       if (j is! Map<String, Object?>) return const KoSyncSettings();
       const d = KoSyncSettings();
       return KoSyncSettings(
-        serverUrl: j['serverUrl'] is String ? j['serverUrl'] as String : d.serverUrl,
+        serverUrl: j['serverUrl'] is String ? j['serverUrl'] as String : '',
         username: j['username'] as String?,
         userkey: j['userkey'] as String?,
         autoSync: j['autoSync'] == true,

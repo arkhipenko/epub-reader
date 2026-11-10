@@ -95,7 +95,10 @@ class _KoSyncSettingsScreenState extends State<KoSyncSettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.login),
                 title: const Text('Register / Login'),
-                subtitle: const Text('Use the same account as KOReader on your other devices'),
+                subtitle: Text(s.hasServer
+                    ? 'Use the same account as KOReader on your other devices'
+                    : 'Set the sync server address first'),
+                enabled: s.hasServer,
                 onTap: () async {
                   final ok = await showDialog<bool>(
                     context: context,
@@ -107,12 +110,17 @@ class _KoSyncSettingsScreenState extends State<KoSyncSettingsScreen> {
             ListTile(
               leading: const Icon(Icons.dns),
               title: const Text('Sync server'),
-              subtitle: Text(s.serverUrl),
+              subtitle: Text(s.hasServer ? s.serverUrl : 'Not set'),
               onTap: () async {
-                final v = await _editText('Sync server address', s.serverUrl,
-                    hint: KoSyncSettings.defaultServer, keyboard: TextInputType.url);
+                final v = await _editText('Sync server address', s.hasServer ? s.serverUrl : 'http://',
+                    hint: 'http://server:17200', keyboard: TextInputType.url);
                 if (v == null) return;
-                final url = v.trim().isEmpty ? KoSyncSettings.defaultServer : v.trim();
+                var url = v.trim();
+                if (url == 'http://' || url == 'https://') url = '';
+                if (url.isNotEmpty && Uri.tryParse(url)?.hasScheme != true) {
+                  _show('The address must start with http:// or https://');
+                  return;
+                }
                 await _service.updateSettings(s.copyWith(serverUrl: url));
               },
             ),

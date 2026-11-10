@@ -45,20 +45,20 @@ const String _osd = '''<?xml version="1.0" encoding="UTF-8"?>
 void main() {
   group('OPDS parser', () {
     test('navigation, acquisition, covers, next and search links', () {
-      final f = parseOpdsFeed(_feed, 'http://books.home.lan:8083/opds');
+      final f = parseOpdsFeed(_feed, 'http://catalog.example:8083/opds');
       expect(f.title, 'Calibre-Web');
-      expect(f.nextHref, 'http://books.home.lan:8083/opds/new?offset=30');
-      expect(f.searchDescriptionHref, 'http://books.home.lan:8083/opds/osd');
+      expect(f.nextHref, 'http://catalog.example:8083/opds/new?offset=30');
+      expect(f.searchDescriptionHref, 'http://catalog.example:8083/opds/osd');
       expect(f.entries, hasLength(2));
 
       final nav = f.entries[0];
       expect(nav.isBook, isFalse);
-      expect(nav.navigationHref, 'http://books.home.lan:8083/opds/author');
+      expect(nav.navigationHref, 'http://catalog.example:8083/opds/author');
 
       final book = f.entries[1];
       expect(book.isBook, isTrue);
       expect(book.authors, ['Test Sample']);
-      expect(book.thumbnailHref, 'http://books.home.lan:8083/opds/cover/1');
+      expect(book.thumbnailHref, 'http://catalog.example:8083/opds/cover/1');
       expect(book.acquisitions.map((a) => a.label), ['EPUB', 'FB2', 'PDF']);
       expect(book.acquisitions.map((a) => a.isSupported), [true, true, false]);
       expect(book.acquisitions.first.extension, '.epub');
@@ -226,8 +226,8 @@ void main() {
     expect(b.favorite, isFalse);
     expect(b.missing, isFalse);
     expect(b.fileSize, isNull);
-    final catalogs = await db.watchCatalogs().first;
-    expect(catalogs.single.url, 'http://books.home.lan:8083/opds');
+    // Clean slate: the upgrade adds no catalog.
+    expect(await db.watchCatalogs().first, isEmpty);
     final shelf = await db.addShelf('Fiction');
     await db.setOnShelf(shelf, 'm1', true);
     expect((await db.watchShelfBooks().first)[shelf], {'m1'});

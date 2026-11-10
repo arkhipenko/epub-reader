@@ -1,6 +1,5 @@
 // Library settings: scanned folders, download folder, view and sort.
 import 'dart:convert';
-import 'dart:io';
 
 enum LibraryView {
   card('Cards'),
@@ -43,19 +42,15 @@ class LibrarySettings {
   /// Android shared storage root.
   static const String storageRoot = '/storage/emulated/0';
 
-  /// Folders used when the user has not chosen any.
-  static List<String> get defaultFolders =>
-      Platform.isAndroid ? ['$storageRoot/Books', '$storageRoot/Download'] : const [];
-
   final List<String> folders;
 
-  /// Folder for OPDS downloads. Null: the first library folder.
+  /// Folder for OPDS downloads. Null: the first library folder, or the
+  /// app's own folder when there is none.
   final String? downloadFolder;
   final LibraryView view;
   final LibrarySort sort;
 
-  String? get effectiveDownloadFolder =>
-      downloadFolder ?? (folders.isNotEmpty ? folders.first : (Platform.isAndroid ? '$storageRoot/Books' : null));
+  String? get effectiveDownloadFolder => downloadFolder ?? (folders.isNotEmpty ? folders.first : null);
 
   LibrarySettings copyWith({
     List<String>? folders,
@@ -78,17 +73,17 @@ class LibrarySettings {
       });
 
   static LibrarySettings decode(String? text) {
-    if (text == null) return LibrarySettings(folders: defaultFolders);
+    if (text == null) return const LibrarySettings();
     try {
       final j = jsonDecode(text) as Map<String, dynamic>;
       return LibrarySettings(
-        folders: (j['folders'] as List?)?.whereType<String>().toList() ?? defaultFolders,
+        folders: (j['folders'] as List?)?.whereType<String>().toList() ?? const [],
         downloadFolder: j['downloadFolder'] as String?,
         view: LibraryView.values.firstWhere((v) => v.name == j['view'], orElse: () => LibraryView.card),
         sort: LibrarySort.values.firstWhere((s) => s.name == j['sort'], orElse: () => LibrarySort.recent),
       );
     } catch (_) {
-      return LibrarySettings(folders: defaultFolders);
+      return const LibrarySettings();
     }
   }
 }

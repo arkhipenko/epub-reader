@@ -33,8 +33,12 @@ NOTE: Steps 3 and 4 make files that are not in git. Run step 3 before the first 
 
 - `flutter test` in `app/` checks the KOReader document fingerprint (partial MD5) against
   the values in the KOReader unit tests.
-- The test screen in the app has a KOReader XPointer test for `juliet.epub`. It checks that the
-  engine finds the same text as KOReader at five XPointers from the KOReader unit tests.
+- Sample books are not in the app. For manual tests, copy them to the device, where the library
+  finds them in the Download folder:
+  `adb push app/test/fixtures/leaves.epub app/test/fixtures/juliet.epub app/test/fixtures/sample.fb2 /sdcard/Download/`
+- In debug builds, the reader's Position info panel has a KOReader XPointer test for `juliet.epub`.
+  It checks that the engine finds the same text as KOReader at five XPointers from the KOReader
+  unit tests.
 
 ## License
 

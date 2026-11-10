@@ -3,10 +3,12 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../app_services.dart';
+import '../data/database.dart';
 import '../engine/cre_engine.dart';
 import '../sync/kosync_decision.dart';
 import '../sync/kosync_session.dart';
@@ -37,13 +39,28 @@ const String _msgSyncError =
     'Something went wrong when syncing progress, please check your network connection and try again later.';
 const String _msgLogin = 'Please register or login before using the progress synchronization feature.';
 
+/// Search results and the hit on screen.
+class SearchState {
+  SearchState({required this.query, required this.hits, this.index = 0});
+
+  final String query;
+  final List<SearchHit> hits;
+  int index;
+
+  SearchHit? get current => hits.isEmpty ? null : hits[index.clamp(0, hits.length - 1)];
+}
+
 class ReaderController extends ChangeNotifier {
-  ReaderController({required this.services, required this.path}) : _settings = services.settings.value {
+  ReaderController({required this.services, required this.path, this.jumpTo})
+      : _settings = services.settings.value {
     services.settings.addListener(_onSettingsChanged);
   }
 
   final AppServices services;
   final String path;
+
+  /// Open the book at this XPointer instead of the saved position.
+  final String? jumpTo;
 
   CreEngine get _engine => services.engine;
 
@@ -72,6 +89,32 @@ class ReaderController extends ChangeNotifier {
   final StreamController<SyncEvent> _syncEvents = StreamController.broadcast();
   Stream<SyncEvent> get syncEvents => _syncEvents.stream;
   Timer? _resumePullTimer;
+
+  // ---- Annotations, selection, search, links ----
+
+  /// Bookmarks, highlights and notes of this book.
+  List<Annotation> annotations = const [];
+  StreamSubscription<List<Annotation>>? _annotationSub;
+
+  /// Boxes on page [_marksPage], by key: an annotation id, 'sel' for the
+  /// selection, 'hit' for the search hit on screen.
+  Map<String, List<PageRect>> _marks = const {};
+  int _marksPage = 0;
+  Map<String, List<PageRect>> get pageMarks => _marksPage == displayPage ? _marks : const {};
+  List<PageLink> _links = const [];
+
+  /// Links of the page on screen.
+  List<PageLink> get pageLinks => _marksPage == displayPage ? _links : const [];
+
+  /// Page of an XPointer in the current layout (cleared on a new layout).
+  final Map<String, int> _pageOf = {};
+
+  TextSelection? selection;
+  SearchState? search;
+  final List<String> _backStack = [];
+  bool get canGoBack => _backStack.isNotEmpty;
+  (ui.Offset, ui.Offset)? _pendingExtend;
+  bool _extending = false;
 
   /// Page size the view asks for (physical pixels).
   ui.Size? _requestedSize;
@@ -161,7 +204,7 @@ class ReaderController extends ChangeNotifier {
         height: size.height.toInt(),
         dpi: (160 * _dpr).round(),
         layout: _layout(),
-        xpointer: saved?.lastXPointer,
+        xpointer: jumpTo ?? saved?.lastXPointer,
       );
       _renderSize = size;
       info = r.info;
@@ -180,8 +223,18 @@ class ReaderController extends ChangeNotifier {
         documentKey: kosync.documentKey(partialMd5: id, path: path),
         metadata: {'filename': path.split('/').last, 'title': r.info.title, 'authors': r.info.authors},
       );
+      _annotationSub = services.db.watchAnnotations(id).listen((list) {
+        annotations = list;
+        if (isOpen) {
+          _serial(() async {
+            await _refreshMarks();
+            notifyListeners();
+          });
+        }
+      });
       await _setPosition(r.position);
-      if (kosync.current.autoSync) unawaited(_autoPull());
+      // A jump (from a note in the library) is not a sync conflict to resolve.
+      if (kosync.current.autoSync && jumpTo == null) unawaited(_autoPull());
     } catch (e) {
       error = e;
       notifyListeners();
@@ -216,11 +269,14 @@ class ReaderController extends ChangeNotifier {
   }
 
   /// Shows the engine position, then renders the pages around it.
+  /// Runs inside a serial engine operation: the engine is on page p.page.
   Future<void> _setPosition(EnginePosition p) async {
     // Render first, so that the screen never shows a page without an image.
     await _ensurePage(p.page, p.pageCount);
     if (_disposed) return;
     position = p;
+    await _refreshMarks(p.page);
+    if (_disposed) return;
     displayPage = p.page;
     notifyListeners();
     _sync?.onPageChanged(p.page, () => unawaited(pushProgress()));
@@ -264,6 +320,8 @@ class ReaderController extends ChangeNotifier {
 
   void _clearPages({bool keepCurrent = true}) {
     _generation++;
+    _pageOf.clear();
+    _marks = const {};
     final current = keepCurrent ? _pages.remove(displayPage) : null;
     if (current != null) {
       final old = _fallback;
@@ -326,6 +384,234 @@ class ReaderController extends ChangeNotifier {
   }
 
   Future<String?> textAt(String xpointer, {int maxChars = 200}) => _engine.textAt(xpointer, maxChars: maxChars);
+
+  // ---- Annotations and marks ----
+
+  /// Recomputes the boxes of annotations, selection and search hit on the
+  /// engine's current page. Call only inside a serial engine operation.
+  Future<void> _refreshMarks([int? page]) async {
+    final current = page ?? position?.page ?? 0;
+    final need = <String>{};
+    for (final a in annotations) {
+      need.add(a.page);
+      if (a.pos1 != null) need.add(a.pos1!);
+    }
+    need.removeAll(_pageOf.keys);
+    if (need.isNotEmpty) _pageOf.addAll(await _engine.pagesOf(need));
+    final ranges = <String, (String, String)>{};
+    for (final a in annotations) {
+      final p0 = a.pos0, p1 = a.pos1;
+      if (p0 == null || p1 == null) continue;
+      final first = _pageOf[a.page] ?? 0;
+      final last = _pageOf[p1] ?? first;
+      if (first <= current && current <= last) ranges['${a.id}'] = (p0, p1);
+    }
+    final sel = selection;
+    if (sel != null) ranges['sel'] = (sel.pos0, sel.pos1);
+    final hit = search?.current;
+    if (hit != null) ranges['hit'] = (hit.start, hit.end);
+    _marks = await _engine.boxes(ranges);
+    if (current != _marksPage || page != null) _links = await _engine.pageLinks();
+    _marksPage = current;
+  }
+
+  /// The bookmark of the page on screen, or null.
+  Annotation? get pageBookmark {
+    for (final a in annotations) {
+      if (a.pos0 == null && _pageOf[a.page] == displayPage) return a;
+    }
+    return null;
+  }
+
+  List<Annotation> get bookmarks => [for (final a in annotations) if (a.pos0 == null) a]
+    ..sort((a, b) => (_pageOf[a.page] ?? a.pageno).compareTo(_pageOf[b.page] ?? b.pageno));
+
+  List<Annotation> get highlights => [for (final a in annotations) if (a.pos0 != null) a]
+    ..sort((a, b) => (_pageOf[a.page] ?? a.pageno).compareTo(_pageOf[b.page] ?? b.pageno));
+
+  /// Page of an annotation in the current layout (its saved page if unknown).
+  int pageOfAnnotation(Annotation a) => _pageOf[a.page] ?? a.pageno;
+
+  /// Converts a point in the page widget to page pixels.
+  ui.Offset toPagePixels(ui.Offset local, ui.Size widget) {
+    final r = _renderSize;
+    if (r == null || widget.isEmpty) return local;
+    return ui.Offset(local.dx * r.width / widget.width, local.dy * r.height / widget.height);
+  }
+
+  /// Scale from page pixels to widget pixels.
+  double pixelScale(ui.Size widget) => _renderSize == null ? 1 : widget.width / _renderSize!.width;
+
+  /// The highlight under a point (page pixels), or null.
+  Annotation? annotationAt(ui.Offset px) {
+    for (final e in pageMarks.entries) {
+      final id = int.tryParse(e.key);
+      if (id == null) continue;
+      if (e.value.any((r) => r.contains(px.dx, px.dy))) {
+        for (final a in annotations) {
+          if (a.id == id) return a;
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<void> toggleBookmark() async {
+    final id = bookId;
+    final p = position;
+    final xp = p?.xpointer;
+    if (id == null || p == null || xp == null) return;
+    final existing = pageBookmark;
+    if (existing != null) {
+      await services.db.deleteAnnotation(existing.id);
+      return;
+    }
+    final text = await _serial(() => _engine.textAt(xp, maxChars: 120)) ?? '';
+    _pageOf[xp] = p.page;
+    await services.db.addAnnotation(AnnotationsCompanion.insert(
+      bookId: id,
+      page: xp,
+      textContent: Value(text.trim()),
+      chapter: Value(chapterTitle),
+      pageno: Value(p.page),
+      datetime: DateTime.now(),
+    ));
+  }
+
+  // ---- Selection ----
+
+  /// Selects the word at a point (page pixels).
+  Future<void> selectWordAt(ui.Offset px) => _serial(() async {
+        selection = await _engine.select(px.dx.round(), px.dy.round(), px.dx.round(), px.dy.round());
+        await _refreshMarks();
+        notifyListeners();
+      });
+
+  /// Selects from [anchor] to [point] (page pixels). While a drag sends many
+  /// points, only the latest waiting one is sent to the engine.
+  void extendSelection(ui.Offset anchor, ui.Offset point) {
+    _pendingExtend = (anchor, point);
+    if (_extending) return;
+    _extending = true;
+    unawaited(_serial(() async {
+      try {
+        while (_pendingExtend != null) {
+          final (a, b) = _pendingExtend!;
+          _pendingExtend = null;
+          final s = await _engine.select(a.dx.round(), a.dy.round(), b.dx.round(), b.dy.round());
+          if (s != null) selection = s;
+          await _refreshMarks();
+          notifyListeners();
+        }
+      } finally {
+        _extending = false;
+      }
+    }));
+  }
+
+  void clearSelection() {
+    if (selection == null) return;
+    selection = null;
+    _marks = Map.of(_marks)..remove('sel');
+    notifyListeners();
+  }
+
+  Future<void> addHighlight({String color = 'yellow', String drawer = 'lighten', String? note}) async {
+    final s = selection;
+    final id = bookId;
+    if (s == null || id == null) return;
+    _pageOf[s.pos0] = displayPage;
+    await services.db.addAnnotation(AnnotationsCompanion.insert(
+      bookId: id,
+      page: s.pos0,
+      pos0: Value(s.pos0),
+      pos1: Value(s.pos1),
+      textContent: Value(s.text),
+      note: Value(note == null || note.trim().isEmpty ? null : note),
+      color: Value(color),
+      drawer: Value(drawer),
+      chapter: Value(chapterTitle),
+      pageno: Value(displayPage),
+      datetime: DateTime.now(),
+    ));
+    clearSelection();
+  }
+
+  Future<void> updateAnnotation(Annotation a, {String? color, String? drawer, String? Function()? note}) =>
+      services.db.updateAnnotation(
+        a.id,
+        AnnotationsCompanion(
+          color: color == null ? const Value.absent() : Value(color),
+          drawer: drawer == null ? const Value.absent() : Value(drawer),
+          note: note == null ? const Value.absent() : Value(note()),
+        ),
+      );
+
+  Future<void> deleteAnnotation(Annotation a) => services.db.deleteAnnotation(a.id);
+
+  Future<void> gotoAnnotation(Annotation a) async {
+    await gotoXPointer(a.page);
+  }
+
+  // ---- Search ----
+
+  Future<List<SearchHit>> findAll(String query, {bool caseInsensitive = true}) =>
+      _serial(() => _engine.findAll(query, caseInsensitive: caseInsensitive));
+
+  /// Shows hit [index] of [state] (goes to its page and marks it).
+  Future<void> showSearchHit(SearchState state, int index) async {
+    if (state.hits.isEmpty) return;
+    state.index = index.clamp(0, state.hits.length - 1);
+    search = state;
+    final hit = state.current!;
+    await gotoXPointer(hit.start);
+  }
+
+  void closeSearch() {
+    if (search == null) return;
+    search = null;
+    _marks = Map.of(_marks)..remove('hit');
+    notifyListeners();
+  }
+
+  // ---- Links ----
+
+  /// The link under a point (page pixels) on the page on screen, or null.
+  /// Uses the page's link boxes, so a tap needs no engine call.
+  PageLink? linkAt(ui.Offset px) {
+    // A little slack: link text is small for a finger.
+    const pad = 12.0;
+    for (final l in pageLinks) {
+      for (final r in l.boxes) {
+        if (px.dx >= r.left - pad && px.dx <= r.right + pad && px.dy >= r.top - pad && px.dy <= r.bottom + pad) {
+          return l;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Follows a link. External links are shown as a message.
+  Future<void> followLink(PageLink link) async {
+    if (!link.isInternal) {
+      _say('Link to ${link.href}');
+      return;
+    }
+    await _serial(() async {
+      final from = position?.xpointer;
+      final p = await _engine.gotoLink(link.href);
+      if (p == null) return;
+      if (from != null) _backStack.add(from);
+      await _setPosition(p);
+    });
+  }
+
+  /// Returns to the place before the last followed link.
+  Future<void> goBack() async {
+    if (_backStack.isEmpty) return;
+    await gotoXPointer(_backStack.removeLast());
+    notifyListeners();
+  }
 
   // ---- Progress sync (kosync) ----
 
@@ -441,6 +727,7 @@ class ReaderController extends ChangeNotifier {
   @override
   void dispose() {
     services.settings.removeListener(_onSettingsChanged);
+    _annotationSub?.cancel();
     _resizeTimer?.cancel();
     _resumePullTimer?.cancel();
     unawaited(saveNow());

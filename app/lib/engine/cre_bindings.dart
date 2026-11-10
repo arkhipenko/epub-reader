@@ -10,7 +10,7 @@ import 'package:ffi/ffi.dart';
 final class CreDoc extends Opaque {}
 
 /// The C interface version this file is written for (CRE_FFI_VERSION).
-const int kCreFfiVersion = 3;
+const int kCreFfiVersion = 4;
 
 /// cre_doc_draw_page() flag: invert images (for the dark theme, which
 /// inverts the whole page afterwards).
@@ -83,6 +83,22 @@ class CreBindings {
             'cre_font_faces_json'),
         _bookInfo = lib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>),
             Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>('cre_book_info'),
+        _docSelect = lib.lookupFunction<Pointer<Utf8> Function(Pointer<CreDoc>, Int32, Int32, Int32, Int32),
+            Pointer<Utf8> Function(Pointer<CreDoc>, int, int, int, int)>('cre_doc_select'),
+        _docTextRange = lib.lookupFunction<Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>),
+            Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>)>('cre_doc_text_range'),
+        _docRangeBoxes = lib.lookupFunction<Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>),
+            Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>)>('cre_doc_range_boxes'),
+        _docFindAll = lib.lookupFunction<Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, Int32, Int32),
+            Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, int, int)>('cre_doc_find_all'),
+        _docLinkAt = lib.lookupFunction<Pointer<Utf8> Function(Pointer<CreDoc>, Int32, Int32),
+            Pointer<Utf8> Function(Pointer<CreDoc>, int, int)>('cre_doc_link_at'),
+        _docPageLinks = lib.lookupFunction<Pointer<Utf8> Function(Pointer<CreDoc>),
+            Pointer<Utf8> Function(Pointer<CreDoc>)>('cre_doc_page_links'),
+        _docGotoLink = lib.lookupFunction<Int32 Function(Pointer<CreDoc>, Pointer<Utf8>),
+            int Function(Pointer<CreDoc>, Pointer<Utf8>)>('cre_doc_goto_link'),
+        _docCompare = lib.lookupFunction<Int32 Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>),
+            int Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>)>('cre_doc_compare_xpointers'),
         _free = lib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('cre_free');
 
   /// Opens the native library for the current platform.
@@ -126,6 +142,35 @@ class CreBindings {
   final void Function(Pointer<CreDoc>) docRequestRender;
   final Pointer<Utf8> Function() _fontFacesJson;
   final Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>) _bookInfo;
+  final Pointer<Utf8> Function(Pointer<CreDoc>, int, int, int, int) _docSelect;
+  final Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>) _docTextRange;
+  final Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>) _docRangeBoxes;
+  final Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, int, int) _docFindAll;
+  final Pointer<Utf8> Function(Pointer<CreDoc>, int, int) _docLinkAt;
+  final Pointer<Utf8> Function(Pointer<CreDoc>) _docPageLinks;
+  final int Function(Pointer<CreDoc>, Pointer<Utf8>) _docGotoLink;
+
+  String? docPageLinks(Pointer<CreDoc> d) => _take(_docPageLinks(d));
+  final int Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>) _docCompare;
+
+  String? docSelect(Pointer<CreDoc> d, int x0, int y0, int x1, int y1) => _take(_docSelect(d, x0, y0, x1, y1));
+
+  String? docTextRange(Pointer<CreDoc> d, String a, String b) =>
+      using((m) => _take(_docTextRange(d, a.toNativeUtf8(allocator: m), b.toNativeUtf8(allocator: m))));
+
+  String? docRangeBoxes(Pointer<CreDoc> d, String a, String b) =>
+      using((m) => _take(_docRangeBoxes(d, a.toNativeUtf8(allocator: m), b.toNativeUtf8(allocator: m))));
+
+  String? docFindAll(Pointer<CreDoc> d, String pattern, bool caseInsensitive, int maxHits) => using(
+      (m) => _take(_docFindAll(d, pattern.toNativeUtf8(allocator: m), caseInsensitive ? 1 : 0, maxHits)));
+
+  String? docLinkAt(Pointer<CreDoc> d, int x, int y) => _take(_docLinkAt(d, x, y));
+
+  bool docGotoLink(Pointer<CreDoc> d, String href) =>
+      using((m) => _docGotoLink(d, href.toNativeUtf8(allocator: m)) == 1);
+
+  int docCompare(Pointer<CreDoc> d, String a, String b) =>
+      using((m) => _docCompare(d, a.toNativeUtf8(allocator: m), b.toNativeUtf8(allocator: m)));
   final void Function(Pointer<Void>) _free;
 
   /// Metadata JSON for the library, and the cover written to [coverOut].

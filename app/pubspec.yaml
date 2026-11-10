@@ -77,7 +77,6 @@ flutter:
     - assets/engine/css/
     - assets/engine/fonts/
     - assets/engine/hyph/
-    - assets/samples/
     - images/logo.png
     - images/icon.png
 

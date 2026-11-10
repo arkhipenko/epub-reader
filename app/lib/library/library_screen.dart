@@ -4,13 +4,14 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../app_services.dart';
 import '../data/database.dart';
+import '../dict/dictionary_screens.dart';
 import '../opds/opds_screens.dart';
 import '../reader/reader_screen.dart';
 import '../sync/kosync_settings_screen.dart';
+import 'annotations_screen.dart';
 import 'folders_screen.dart';
 import 'library_filter.dart';
 import 'library_scanner.dart';
@@ -94,16 +95,6 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
     await _open(dest.path);
   }
 
-  Future<void> _openSample(String asset) async {
-    final file = File('${_services.booksDir}/${asset.split('/').last}');
-    if (!await file.exists()) {
-      final data = await rootBundle.load(asset);
-      await file.writeAsBytes(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes), flush: true);
-      await _services.scanner.addFile(file.path);
-    }
-    await _open(file.path);
-  }
-
   void _select(LibrarySection s, {bool closeDrawer = true}) {
     setState(() => _section = s);
     // Navigator.pop closes a Scaffold drawer (its local history entry).
@@ -145,14 +136,11 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
                   if (!wide) Navigator.of(context).pop();
                   _go(w);
                 },
-                onSample: (a) {
-                  if (!wide) Navigator.of(context).pop();
-                  _openSample(a);
-                },
               );
               final body = Column(children: [
                 _ScanBar(progress: services.scanner.progress),
-                if (_access == false && Platform.isAndroid)
+                // Only when there are folders to scan: a new install has none.
+                if (_access == false && Platform.isAndroid && settings.folders.isNotEmpty)
                   MaterialBanner(
                     content: const Text('Allow access to all files to find the books in your folders.'),
                     actions: [
@@ -398,7 +386,6 @@ class _Sidebar extends StatelessWidget {
     required this.shelfBooks,
     required this.onSelect,
     required this.onOpenScreen,
-    required this.onSample,
   });
 
   final LibrarySection selected;
@@ -407,7 +394,6 @@ class _Sidebar extends StatelessWidget {
   final Map<int, Set<String>> shelfBooks;
   final ValueChanged<LibrarySection> onSelect;
   final ValueChanged<Widget> onOpenScreen;
-  final ValueChanged<String> onSample;
 
   @override
   Widget build(BuildContext context) {
@@ -444,6 +430,16 @@ class _Sidebar extends StatelessWidget {
         item(LibrarySection.recent, Icons.history),
         item(LibrarySection.favorites, Icons.favorite_border),
         item(LibrarySection.deleted, Icons.delete_outline),
+        ListTile(
+          leading: const Icon(Icons.edit_note),
+          title: const Text('Notes'),
+          onTap: () => onOpenScreen(const AnnotationsScreen(notesOnly: true)),
+        ),
+        ListTile(
+          leading: const Icon(Icons.border_color_outlined),
+          title: const Text('Highlights'),
+          onTap: () => onOpenScreen(const AnnotationsScreen(notesOnly: false)),
+        ),
         const Divider(),
         ListTile(
           title: Text('Shelves', style: Theme.of(context).textTheme.labelLarge),
@@ -477,21 +473,14 @@ class _Sidebar extends StatelessWidget {
           onTap: () => onOpenScreen(const FoldersScreen()),
         ),
         ListTile(
+          leading: const Icon(Icons.menu_book_outlined),
+          title: const Text('Dictionaries'),
+          onTap: () => onOpenScreen(const DictionariesScreen()),
+        ),
+        ListTile(
           leading: const Icon(Icons.sync),
           title: const Text('Progress sync'),
           onTap: () => onOpenScreen(const KoSyncSettingsScreen()),
-        ),
-        ExpansionTile(
-          leading: const Icon(Icons.science_outlined),
-          title: const Text('Sample books'),
-          children: [
-            ListTile(title: const Text('leaves.epub'), onTap: () => onSample('assets/samples/leaves.epub')),
-            ListTile(title: const Text('sample.fb2'), onTap: () => onSample('assets/samples/sample.fb2')),
-            ListTile(
-              title: const Text('juliet.epub (KOReader test book)'),
-              onTap: () => onSample('assets/samples/juliet.epub'),
-            ),
-          ],
         ),
       ]),
     );

@@ -71,6 +71,34 @@ class ShelfBooks extends Table {
   Set<Column<Object>> get primaryKey => {shelfId, bookId};
 }
 
+/// Bookmarks, highlights and notes, with the KOReader annotation fields
+/// (readerannotation.lua): page, pos0, pos1, text, note, color, drawer,
+/// chapter, pageno, datetime, datetime_updated.
+/// A bookmark has no pos0 / pos1; a note is a highlight with note text.
+class Annotations extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get bookId => text().references(Books, #id, onDelete: KeyAction.cascade)();
+
+  /// XPointer: the page top for a bookmark, pos0 for a highlight.
+  TextColumn get page => text()();
+  TextColumn get pos0 => text().nullable()();
+  TextColumn get pos1 => text().nullable()();
+  TextColumn get textContent => text().named('text').withDefault(const Constant(''))();
+  TextColumn get note => text().nullable()();
+
+  /// KOReader color name: red, orange, yellow, green, olive, cyan, blue, purple, gray.
+  TextColumn get color => text().withDefault(const Constant('yellow'))();
+
+  /// KOReader drawer: lighten, underscore, strikeout, invert.
+  TextColumn get drawer => text().withDefault(const Constant('lighten'))();
+  TextColumn get chapter => text().withDefault(const Constant(''))();
+
+  /// Page number when the annotation was made (layout dependent, for display).
+  IntColumn get pageno => integer().withDefault(const Constant(0))();
+  DateTimeColumn get datetime => dateTime()();
+  DateTimeColumn get datetimeUpdated => dateTime().nullable()();
+}
+
 class OpdsCatalogs extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get title => text()();
@@ -82,19 +110,16 @@ class OpdsCatalogs extends Table {
   DateTimeColumn get createdAt => dateTime()();
 }
 
-@DriftDatabase(tables: [Books, Prefs, Shelves, ShelfBooks, OpdsCatalogs])
+@DriftDatabase(tables: [Books, Prefs, Shelves, ShelfBooks, OpdsCatalogs, Annotations])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? driftDatabase(name: 'epub_reader'));
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) async {
-          await m.createAll();
-          await _seedCatalogs();
-        },
+        onCreate: (m) => m.createAll(),
         onUpgrade: (m, from, to) async {
           if (from < 2) {
             await m.addColumn(books, books.series);
@@ -109,20 +134,15 @@ class AppDatabase extends _$AppDatabase {
             await m.createTable(shelves);
             await m.createTable(shelfBooks);
             await m.createTable(opdsCatalogs);
-            await _seedCatalogs();
+          }
+          if (from < 3) {
+            await m.createTable(annotations);
           }
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
         },
       );
-
-  /// The home calibre-web catalog (on omega).
-  Future<void> _seedCatalogs() => into(opdsCatalogs).insert(OpdsCatalogsCompanion.insert(
-        title: 'Home library (calibre-web)',
-        url: 'http://books.home.lan:8083/opds',
-        createdAt: DateTime.now(),
-      ));
 
   // ---- Books ----
 
@@ -246,6 +266,28 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> deleteCatalog(int id) => (delete(opdsCatalogs)..where((c) => c.id.equals(id))).go();
+
+  // ---- Annotations ----
+
+  Stream<List<Annotation>> watchAnnotations(String bookId) =>
+      (select(annotations)..where((a) => a.bookId.equals(bookId))).watch();
+
+  /// All highlights and notes with their books, newest first (library
+  /// Notes and Highlights sections).
+  Stream<List<(Annotation, Book)>> watchAllHighlights() {
+    final q = select(annotations).join([innerJoin(books, books.id.equalsExp(annotations.bookId))])
+      ..where(annotations.pos0.isNotNull())
+      ..orderBy([OrderingTerm.desc(annotations.datetime)]);
+    return q.watch().map((rows) => [for (final r in rows) (r.readTable(annotations), r.readTable(books))]);
+  }
+
+  Future<int> addAnnotation(AnnotationsCompanion a) => into(annotations).insert(a);
+
+  Future<void> updateAnnotation(int id, AnnotationsCompanion a) =>
+      (update(annotations)..where((x) => x.id.equals(id)))
+          .write(a.copyWith(datetimeUpdated: Value(DateTime.now())));
+
+  Future<void> deleteAnnotation(int id) => (delete(annotations)..where((x) => x.id.equals(id))).go();
 
   // ---- Prefs ----
 

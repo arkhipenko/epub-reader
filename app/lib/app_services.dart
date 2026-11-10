@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'data/database.dart';
+import 'dict/dictionary_service.dart';
 import 'engine/cre_engine.dart';
 import 'engine/engine_assets.dart';
 import 'library/library_scanner.dart';
@@ -14,7 +15,16 @@ import 'reader/reader_settings.dart';
 import 'sync/kosync_service.dart';
 
 class AppServices {
-  AppServices._(this.db, this.engine, this.settings, this.kosync, this.library, this.scanner, this.booksDir);
+  AppServices._(
+    this.db,
+    this.engine,
+    this.settings,
+    this.kosync,
+    this.library,
+    this.scanner,
+    this.booksDir,
+    this.dictionaries,
+  );
 
   final AppDatabase db;
   final CreEngine engine;
@@ -26,6 +36,7 @@ class AppServices {
 
   /// The app's own folder for books opened with the file picker.
   final String booksDir;
+  final DictionaryService dictionaries;
 
   /// Current reading settings. The reader listens to this.
   final ValueNotifier<ReaderSettings> settings;
@@ -52,7 +63,17 @@ class AppServices {
       coversDir: '${support.path}/covers',
       internalBooksDir: booksDir,
     );
-    return AppServices._(db, engine, ValueNotifier(settings), kosync, ValueNotifier(library), scanner, booksDir);
+    final dictionaries = await DictionaryService.create(db);
+    return AppServices._(
+      db,
+      engine,
+      ValueNotifier(settings),
+      kosync,
+      ValueNotifier(library),
+      scanner,
+      booksDir,
+      dictionaries,
+    );
   }
 
   Future<void> updateLibrary(LibrarySettings value) async {

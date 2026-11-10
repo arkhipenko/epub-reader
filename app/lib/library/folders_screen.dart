@@ -121,7 +121,7 @@ class _FoldersScreenState extends State<FoldersScreen> with WidgetsBindingObserv
             ListTile(
               leading: const Icon(Icons.download),
               title: const Text('Download folder'),
-              subtitle: Text(s.effectiveDownloadFolder ?? 'Not set'),
+              subtitle: Text(s.effectiveDownloadFolder ?? 'App storage (add a folder to choose one)'),
               onTap: _access == true
                   ? () async {
                       final dir = await pickFolder(context);

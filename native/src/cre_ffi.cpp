@@ -458,6 +458,218 @@ char *cre_font_faces_json(void) {
     return dup_str(out);
 }
 
+// ---- Text selection, annotations, search, links ----
+
+char *cre_doc_select(CreDoc *doc, int x0, int y0, int x1, int y1) {
+    if (!doc || !doc->dom) return NULL;
+    LVDocView *v = doc->view;
+    lvPoint a(x0, y0), b(x1, y1);
+    ldomXPointer pa = v->getNodeByPoint(a, false, true);
+    ldomXPointer pb = v->getNodeByPoint(b, false, true);
+    if (pa.isNull() || pb.isNull()) return NULL;
+    ldomXRange r(pa, pb);
+    r.sort();
+    const bool swapped = r.getStart().compare(pa) < 0;
+    const bool single = r.getStart() == r.getEnd();
+    // An XPointer points at the start of a glyph; the end of a selection
+    // must point at the start of the next glyph. Same approach as KOReader
+    // cre.cpp getTextFromPositions().
+    lvRect glyph;
+    if (single) {
+        lvPoint ref = swapped ? b : a;
+        if (v->windowToDocPoint(ref, true) && r.getStart().getRectEx(glyph) && ref.y < glyph.top) {
+            // The point is at the end of a line; the hit glyph is on the next line.
+            r.getStart().prevVisibleChar(true);
+        }
+        r.getEnd() = r.getStart();
+    } else {
+        lvPoint ref = swapped ? a : b;
+        int ctx = 0;
+        if (r.getEnd().getRectEx(glyph, false, &ctx)) {
+            lvPoint gp = glyph.topLeft();
+            if (v->docToWindowPoint(gp)) {
+                const bool rtl = (ctx & RECT_CTX_IN_RTL_PARA) != 0;
+                if (ref.y < gp.y || ref.x < gp.x || (rtl && ref.x >= gp.x + glyph.width())) {
+                    r.getEnd().prevVisibleChar(false);
+                }
+            }
+        }
+    }
+    if (r.getEnd().getChar() != 0) r.getEnd().setOffset(r.getEnd().getOffset() + 1);
+    // Grow to whole words.
+    if (single) {
+        if (!r.getStart().isVisibleWordStart()) r.getStart().prevVisibleWordStart(true);
+        if (r.getEnd().isVisibleWordChar() && !r.getEnd().isVisibleWordStart()) r.getEnd().nextVisibleWordEnd(true);
+    } else {
+        if (r.getStart().isVisibleWordChar() && !r.getStart().isVisibleWordStart()) {
+            r.getStart().prevVisibleWordStart(true);
+        }
+        if (r.getEnd().isVisibleWordChar() && !r.getEnd().isVisibleWordStart()) r.getEnd().nextVisibleWordEnd(true);
+    }
+    if (r.isNull()) return NULL;
+    lString32 text = r.getRangeText('\n', 0);
+    lString8 out("{\"text\":");
+    json_escape(out, text);
+    out << ",\"pos0\":";
+    json_escape(out, r.getStart().toString());
+    out << ",\"pos1\":";
+    json_escape(out, r.getEnd().toString());
+    out << "}";
+    return dup_str(out);
+}
+
+static bool make_range(CreDoc *doc, const char *pos0, const char *pos1, ldomXRange &out) {
+    ldomXPointer a = make_xpointer(doc, pos0);
+    ldomXPointer b = make_xpointer(doc, pos1);
+    if (a.isNull() || b.isNull()) return false;
+    out = ldomXRange(a, b);
+    out.sort();
+    return !out.isNull();
+}
+
+char *cre_doc_text_range(CreDoc *doc, const char *pos0, const char *pos1) {
+    ldomXRange r;
+    if (!make_range(doc, pos0, pos1, r)) return NULL;
+    return dup_str(UnicodeToUtf8(r.getRangeText('\n', 0)));
+}
+
+// Maps a document rect to the current page. Returns false when the rect is
+// not on this page. The rects here are single text lines (segments), and a
+// line does not cross a page break, so no clipping is needed.
+static bool doc_to_page_rect(LVDocView *v, lvRect &rc) {
+    lvPoint tl = rc.topLeft();
+    lvPoint br = rc.bottomRight();
+    // isRectBottom=true: a bottom edge exactly at the next page top is on this page.
+    if (!v->docToWindowPoint(tl) || !v->docToWindowPoint(br, true)) return false;
+    rc.setTopLeft(tl);
+    rc.setBottomRight(br);
+    return true;
+}
+
+char *cre_doc_range_boxes(CreDoc *doc, const char *pos0, const char *pos1) {
+    if (!doc || !doc->dom) return NULL;
+    ldomXRange r;
+    lString8 out("[");
+    if (make_range(doc, pos0, pos1, r)) {
+        LVArray<lvRect> rects;
+        r.getSegmentRects(rects, false);
+        bool first = true;
+        for (int i = 0; i < rects.length(); i++) {
+            lvRect rc = rects[i];
+            if (rc.isEmpty() || !doc_to_page_rect(doc->view, rc)) continue;
+            if (!first) out << ",";
+            first = false;
+            out << "[" << lString8::itoa(rc.left) << "," << lString8::itoa(rc.top) << "," << lString8::itoa(rc.right)
+                << "," << lString8::itoa(rc.bottom) << "]";
+        }
+    }
+    out << "]";
+    return dup_str(out);
+}
+
+// A few words of text before or after a point, for search results.
+static lString32 context_words(const ldomXPointerEx &from, int words, bool before) {
+    ldomXPointerEx p = from;
+    for (int i = 0; i < words; i++) {
+        if (before ? !p.prevVisibleWordStart() : !p.nextVisibleWordEnd()) break;
+    }
+    ldomXRange r = before ? ldomXRange(p, from) : ldomXRange(from, p);
+    return r.getRangeText(' ', 0);
+}
+
+char *cre_doc_find_all(CreDoc *doc, const char *pattern, int case_insensitive, int max_hits) {
+    if (!doc || !doc->dom || !pattern || !pattern[0]) return NULL;
+    ldomXRangeList matches;
+    lString8 out("[");
+    if (doc->dom->findText(Utf8ToUnicode(pattern), case_insensitive != 0, false, -1, -1, matches, max_hits, -1)) {
+        for (int i = 0; i < matches.length(); i++) {
+            ldomXRange *m = matches[i];
+            if (i > 0) out << ",";
+            out << "{\"start\":";
+            json_escape(out, m->getStart().toString());
+            out << ",\"end\":";
+            json_escape(out, m->getEnd().toString());
+            out << ",\"page\":" << lString8::itoa(doc->view->getBookmarkPage(m->getStart()) + 1);
+            out << ",\"text\":";
+            json_escape(out, m->getRangeText(' ', 0));
+            out << ",\"before\":";
+            json_escape(out, context_words(m->getStart(), 5, true));
+            out << ",\"after\":";
+            json_escape(out, context_words(m->getEnd(), 5, false));
+            out << "}";
+        }
+    }
+    out << "]";
+    return dup_str(out);
+}
+
+char *cre_doc_link_at(CreDoc *doc, int x, int y) {
+    if (!doc || !doc->dom) return NULL;
+    lvPoint pt(x, y);
+    ldomXPointer p = doc->view->getNodeByPoint(pt, true, false);
+    if (p.isNull()) return NULL;
+    ldomXPointer a;
+    lString32 href = p.getHRef(a);
+    if (href.empty()) return NULL;
+    lString8 out("{\"href\":");
+    json_escape(out, href);
+    out << ",\"xpointer\":";
+    json_escape(out, a.isNull() ? lString32() : a.toString());
+    out << "}";
+    return dup_str(out);
+}
+
+static void append_boxes(lString8 &out, LVDocView *v, ldomXRange &r) {
+    LVArray<lvRect> rects;
+    r.getSegmentRects(rects, true);
+    out << "[";
+    bool first = true;
+    for (int i = 0; i < rects.length(); i++) {
+        lvRect rc = rects[i];
+        if (rc.isEmpty() || !doc_to_page_rect(v, rc)) continue;
+        if (!first) out << ",";
+        first = false;
+        out << "[" << lString8::itoa(rc.left) << "," << lString8::itoa(rc.top) << "," << lString8::itoa(rc.right) << ","
+            << lString8::itoa(rc.bottom) << "]";
+    }
+    out << "]";
+}
+
+char *cre_doc_page_links(CreDoc *doc) {
+    if (!doc || !doc->dom) return NULL;
+    ldomXRangeList links;
+    doc->view->getCurrentPageLinks(links);
+    lString8 out("[");
+    bool first = true;
+    for (int i = 0; i < links.length(); i++) {
+        ldomXPointer a;
+        lString32 href = links[i]->getHRef(a);
+        if (href.empty()) continue;
+        if (!first) out << ",";
+        first = false;
+        out << "{\"href\":";
+        json_escape(out, href);
+        out << ",\"boxes\":";
+        append_boxes(out, doc->view, *links[i]);
+        out << "}";
+    }
+    out << "]";
+    return dup_str(out);
+}
+
+int cre_doc_goto_link(CreDoc *doc, const char *href) {
+    if (!doc || !doc->dom || !href || !href[0]) return 0;
+    // The app keeps its own back stack (as KOReader ReaderLink does).
+    return doc->view->goLink(Utf8ToUnicode(href), false) ? 1 : 0;
+}
+
+int cre_doc_compare_xpointers(CreDoc *doc, const char *a, const char *b) {
+    ldomXPointerEx pa = make_xpointer(doc, a);
+    ldomXPointerEx pb = make_xpointer(doc, b);
+    if (pa.isNull() || pb.isNull()) return 0;
+    return pa.compare(pb);
+}
+
 void cre_free(void *p) { free(p); }
 
 }  // extern "C"

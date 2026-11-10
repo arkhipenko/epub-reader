@@ -69,7 +69,8 @@ class KoSyncService {
   }
 
   Future<T> _withClient<T>(Future<T> Function(KoSyncClient c) f) async {
-    final c = _clientFactory(current.serverUrl);
+    if (!current.hasServer) throw KoSyncException('Set the sync server address first.');
+    final c = _clientFactory(current.serverUrl.trim());
     try {
       return await f(c);
     } finally {

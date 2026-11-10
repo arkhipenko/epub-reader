@@ -20,7 +20,7 @@ extern "C" {
 #define CRE_API __attribute__((visibility("default")))
 
 /* Version of this C interface. Increase it when a signature changes. */
-#define CRE_FFI_VERSION 3
+#define CRE_FFI_VERSION 4
 
 /* Flags for cre_doc_draw_page(). */
 #define CRE_DRAW_INVERT_IMAGES 1
@@ -97,6 +97,40 @@ CRE_API int cre_doc_draw(CreDoc *doc, uint8_t *rgba, int width, int height);
  * width and height must be the view size. flags: CRE_DRAW_*.
  * Returns 1 on success, 0 when the page does not exist. */
 CRE_API int cre_doc_draw_page(CreDoc *doc, int page, uint8_t *rgba, int width, int height, int flags);
+
+/* ---- Text selection, annotations, search, links (version 4) ----
+ * Points and boxes are in page pixels of the current page (the view). */
+
+/* Selects text between two points, grown to whole words (KOReader
+ * getTextFromPositions). Equal points select the word at the point.
+ * Returns JSON {text, pos0, pos1} or NULL when there is no text there.
+ * Does not draw anything into the page. */
+CRE_API char *cre_doc_select(CreDoc *doc, int x0, int y0, int x1, int y1);
+
+/* Text between two XPointers, or NULL. */
+CRE_API char *cre_doc_text_range(CreDoc *doc, const char *pos0, const char *pos1);
+
+/* Line boxes of the range on the current page: JSON [[l,t,r,b], ...].
+ * Empty array when the range is not on the current page. */
+CRE_API char *cre_doc_range_boxes(CreDoc *doc, const char *pos0, const char *pos1);
+
+/* Full-text search. JSON [{start, end, page, text, before, after}, ...]
+ * with a few words of context before and after each match. */
+CRE_API char *cre_doc_find_all(CreDoc *doc, const char *pattern, int case_insensitive, int max_hits);
+
+/* Link at a point: JSON {href, xpointer} or NULL. */
+CRE_API char *cre_doc_link_at(CreDoc *doc, int x, int y);
+
+/* Links on the current page: JSON [{href, boxes: [[l,t,r,b], ...]}, ...].
+ * Lets the app hit-test taps without a call per tap. */
+CRE_API char *cre_doc_page_links(CreDoc *doc);
+
+/* Follows an internal link. Returns 1 when the position changed. */
+CRE_API int cre_doc_goto_link(CreDoc *doc, const char *href);
+
+/* Order of two XPointers: <0 when a is before b, 0 when equal, >0 after.
+ * Returns 0 when one of them is not in the document. */
+CRE_API int cre_doc_compare_xpointers(CreDoc *doc, const char *a, const char *b);
 
 CRE_API void cre_free(void *p);
 
