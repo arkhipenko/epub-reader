@@ -5,6 +5,8 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
+import '../opds/default_catalogs.dart';
+
 part 'database.g.dart';
 
 class Books extends Table {
@@ -119,7 +121,10 @@ class AppDatabase extends _$AppDatabase {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onCreate: (m) => m.createAll(),
+    onCreate: (m) async {
+      await m.createAll();
+      await _addDefaultCatalogs();
+    },
     onUpgrade: (m, from, to) async {
       if (from < 2) {
         await m.addColumn(books, books.series);
@@ -143,6 +148,17 @@ class AppDatabase extends _$AppDatabase {
       await customStatement('PRAGMA foreign_keys = ON');
     },
   );
+
+  /// A new install starts with the public catalogs in [kDefaultCatalogs].
+  /// An upgrade of an existing database adds none.
+  Future<void> _addDefaultCatalogs() async {
+    final now = DateTime.now();
+    await batch(
+      (b) => b.insertAll(opdsCatalogs, [
+        for (final c in kDefaultCatalogs) OpdsCatalogsCompanion.insert(title: c.title, url: c.url, createdAt: now),
+      ]),
+    );
+  }
 
   // ---- Books ----
 

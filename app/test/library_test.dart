@@ -226,7 +226,7 @@ void main() {
     expect(b.favorite, isFalse);
     expect(b.missing, isFalse);
     expect(b.fileSize, isNull);
-    // Clean slate: the upgrade adds no catalog.
+    // The upgrade of an existing database adds no catalog (new installs only).
     expect(await db.watchCatalogs().first, isEmpty);
     final shelf = await db.addShelf('Fiction');
     await db.setOnShelf(shelf, 'm1', true);

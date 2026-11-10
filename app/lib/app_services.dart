@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/widgets.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'data/database.dart';
@@ -24,6 +25,7 @@ class AppServices {
     this.scanner,
     this.booksDir,
     this.dictionaries,
+    this.appVersion,
   );
 
   final AppDatabase db;
@@ -37,6 +39,10 @@ class AppServices {
   /// The app's own folder for books opened with the file picker.
   final String booksDir;
   final DictionaryService dictionaries;
+
+  /// Version name and build number of the installed app, for example
+  /// "1.0.0 (1)". They come from the version line in pubspec.yaml.
+  final String appVersion;
 
   /// Current reading settings. The reader listens to this.
   final ValueNotifier<ReaderSettings> settings;
@@ -64,6 +70,7 @@ class AppServices {
       internalBooksDir: booksDir,
     );
     final dictionaries = await DictionaryService.create(db);
+    final info = await PackageInfo.fromPlatform();
     return AppServices._(
       db,
       engine,
@@ -73,6 +80,7 @@ class AppServices {
       scanner,
       booksDir,
       dictionaries,
+      formatAppVersion(info.version, info.buildNumber),
     );
   }
 
@@ -96,6 +104,9 @@ class AppServices {
     await db.writePref(_settingsKey, value.encode());
   }
 }
+
+/// Version text for the settings panel: "1.0.0 (1)".
+String formatAppVersion(String name, String build) => build.isEmpty ? name : '$name ($build)';
 
 /// Gives the widget tree access to [AppServices].
 class ServicesScope extends InheritedWidget {

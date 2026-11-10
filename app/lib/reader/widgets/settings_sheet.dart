@@ -23,19 +23,31 @@ Future<void> showReaderSettings(BuildContext context, {required List<String> fon
       maxChildSize: 0.9,
       builder: (context, scroll) => ValueListenableBuilder<ReaderSettings>(
         valueListenable: services.settings,
-        builder: (context, s, _) =>
-            _SettingsBody(scroll: scroll, settings: s, fontFaces: fontFaces, onChanged: services.updateSettings),
+        builder: (context, s, _) => _SettingsBody(
+          scroll: scroll,
+          settings: s,
+          fontFaces: fontFaces,
+          appVersion: services.appVersion,
+          onChanged: services.updateSettings,
+        ),
       ),
     ),
   );
 }
 
 class _SettingsBody extends StatelessWidget {
-  const _SettingsBody({required this.scroll, required this.settings, required this.fontFaces, required this.onChanged});
+  const _SettingsBody({
+    required this.scroll,
+    required this.settings,
+    required this.fontFaces,
+    required this.appVersion,
+    required this.onChanged,
+  });
 
   final ScrollController scroll;
   final ReaderSettings settings;
   final List<String> fontFaces;
+  final String appVersion;
   final ValueChanged<ReaderSettings> onChanged;
 
   @override
@@ -220,6 +232,14 @@ class _SettingsBody extends StatelessWidget {
                 ),
               ),
           ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 24),
+          child: Text(
+            'Version $appVersion',
+            textAlign: TextAlign.center,
+            style: text.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
         ),
       ],
     );

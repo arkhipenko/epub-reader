@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:epub_reader/app_services.dart';
 import 'package:epub_reader/engine/cre_engine.dart';
 import 'package:epub_reader/reader/chapters.dart';
 import 'package:epub_reader/reader/reader_settings.dart';
@@ -9,6 +10,11 @@ import 'package:epub_reader/reader/widgets/goto_dialog.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('app version text: name and build number', () {
+    expect(formatAppVersion('1.0.0', '1'), '1.0.0 (1)');
+    expect(formatAppVersion('1.0.0', ''), '1.0.0');
+  });
+
   group('tap zones', () {
     const size = Size(1000, 2000);
     TapAction at(TapLayout l, double x, double y) => tapActionFor(l, Offset(x, y), size);
