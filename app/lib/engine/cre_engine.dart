@@ -93,7 +93,9 @@ class EnginePosition {
   /// crengine position percent, 0 to 10000.
   final int percent;
 
-  /// KOReader-compatible XPointer of the top of the page.
+  /// KOReader-compatible XPointer of the reading position. It is the top
+  /// of the page after a page turn. After a jump to an XPointer, or a new
+  /// layout, it is that XPointer, which can be in the middle of the page.
   final String? xpointer;
 
   static EnginePosition fromMap(Map m) => EnginePosition(
@@ -490,6 +492,13 @@ class _Worker {
   int _width = 0;
   int _height = 0;
 
+  /// The reading position (KOReader ReaderRolling.xpointer). A page turn
+  /// sets it to the top of the new page. A jump to an XPointer sets it to
+  /// that XPointer. A new layout returns to it and does not change it: the
+  /// top of the page it falls on can be earlier text, and a position taken
+  /// from there moves one page back with each further layout.
+  String? _anchor;
+
   Object? handle(String op, Map<String, Object?> a) {
     switch (op) {
       case 'init':
@@ -509,10 +518,13 @@ class _Worker {
       case 'gotoPage':
         _requireDoc();
         _b.docGotoPage(_doc, a['page'] as int);
+        _anchor = _b.docGetXPointer(_doc);
         return _position();
       case 'gotoXPointer':
         _requireDoc();
-        if (!_b.docGotoXPointer(_doc, a['xpointer'] as String)) return null;
+        final xp = a['xpointer'] as String;
+        if (!_b.docGotoXPointer(_doc, xp)) return null;
+        _anchor = xp;
         return _position();
       case 'position':
         _requireDoc();
@@ -556,7 +568,9 @@ class _Worker {
         return _b.docPageLinks(_doc);
       case 'gotoLink':
         _requireDoc();
-        return _b.docGotoLink(_doc, a['href'] as String) ? _position() : null;
+        if (!_b.docGotoLink(_doc, a['href'] as String)) return null;
+        _anchor = _b.docGetXPointer(_doc);
+        return _position();
       case 'pagesOf':
         _requireDoc();
         return [for (final x in (a['x'] as List).cast<String>()) _b.docPageOfXPointer(_doc, x)];
@@ -618,13 +632,15 @@ class _Worker {
     _doc = d;
     _b.docRender(_doc);
     final xp = a['xpointer'] as String?;
-    if (xp != null && xp.isNotEmpty) _b.docGotoXPointer(_doc, xp);
+    final found = xp != null && xp.isNotEmpty && _b.docGotoXPointer(_doc, xp);
+    _anchor = found ? xp : _b.docGetXPointer(_doc);
     return {'info': _b.docInfoJson(_doc) ?? '{}', 'toc': _b.docTocJson(_doc) ?? '[]', 'pos': _position()};
   }
 
-  /// Runs [change], lays the book out again, and returns to the same text.
+  /// Runs [change], lays the book out again, and returns to the reading
+  /// position.
   Object? _relayout(void Function() change) {
-    final xp = _b.docGetXPointer(_doc);
+    final xp = _anchor ??= _b.docGetXPointer(_doc);
     change();
     _b.docRequestRender(_doc);
     _b.docRender(_doc);
@@ -636,7 +652,7 @@ class _Worker {
     'page': _b.docCurrentPage(_doc),
     'pages': _b.docPageCount(_doc),
     'percent': _b.docPercent(_doc),
-    'xpointer': _b.docGetXPointer(_doc),
+    'xpointer': _anchor ?? _b.docGetXPointer(_doc),
   };
 
   Object? _drawPage(int page, bool invertImages) {
@@ -656,6 +672,7 @@ class _Worker {
       _b.docFree(_doc);
       _doc = nullptr;
     }
+    _anchor = null;
   }
 
   void _requireDoc() {

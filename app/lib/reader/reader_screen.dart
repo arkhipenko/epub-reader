@@ -316,7 +316,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                     child: Column(
                       children: [
                         Expanded(child: _page(context, c)),
-                        if (c.settings.showFooter && c.isOpen) ReaderFooter(controller: c),
+                        // The status line keeps its space before the book is open.
+                        // A page area that changes size lays out the book again.
+                        if (c.settings.showFooter)
+                          c.isOpen ? ReaderFooter(controller: c) : const SizedBox(height: ReaderFooter.height),
                       ],
                     ),
                   ),

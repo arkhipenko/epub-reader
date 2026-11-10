@@ -37,6 +37,11 @@ class SyncQuestion extends SyncEvent {
   final String xpointer;
 }
 
+/// Time the page area must keep its size before the book opens. When the
+/// reader starts, the system bars hide and the page area changes within a
+/// few frames. A book that opens at once is laid out a second time.
+const Duration _viewportSettle = Duration(milliseconds: 100);
+
 const String _msgSyncError =
     'Something went wrong when syncing progress, please check your network connection and try again later.';
 const String _msgLogin = 'Please register or login before using the progress synchronization feature.';
@@ -131,6 +136,7 @@ class ReaderController extends ChangeNotifier {
   /// until a delayed resize runs.
   ui.Size? _renderSize;
   double _dpr = 1;
+  bool _openStarted = false;
   final Map<int, ui.Image> _pages = {};
   int _generation = 0;
   bool _disposed = false;
@@ -185,18 +191,21 @@ class ReaderController extends ChangeNotifier {
   }
 
   /// Called by the page widget with the size of the page area.
-  /// The first call opens the book. Later calls change the page size.
+  /// The book opens when the size stays the same for [_viewportSettle].
+  /// Later calls change the page size.
   void setViewport(ui.Size logical, double dpr) {
     final physical = ui.Size((logical.width * dpr).roundToDouble(), (logical.height * dpr).roundToDouble());
     if (physical.isEmpty || physical == _requestedSize) return;
-    final first = _requestedSize == null;
     _requestedSize = physical;
     _dpr = dpr;
-    if (first) {
-      _serial(_open);
-    } else {
-      _resizeTimer?.cancel();
+    _resizeTimer?.cancel();
+    if (_openStarted) {
       _resizeTimer = Timer(const Duration(milliseconds: 250), () => _serial(_resize));
+    } else {
+      _resizeTimer = Timer(_viewportSettle, () {
+        _openStarted = true;
+        _serial(_open);
+      });
     }
   }
 
