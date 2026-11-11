@@ -61,7 +61,8 @@ NOTE: The Xcode build stops with "file not found" for `libcre_ffi.a` until step 
   finds them in the Download folder:
   `adb push app/test/fixtures/leaves.epub app/test/fixtures/juliet.epub app/test/fixtures/sample.fb2 /sdcard/Download/`
 - `integration_test/engine_test.dart` runs the engine on a device or simulator. It opens the sample
-  books, draws a page of each, and checks the KOReader XPointers in `juliet.epub`. The sample books
+  books, draws a page of each, and checks the KOReader XPointers in `juliet.epub`. With `sample.fb2` it
+  also checks that the book language and each advanced setting change the page. The sample books
   are not in the app, so give their folder. On the iOS simulator, which can read the Mac file system:
   `flutter test integration_test/engine_test.dart -d <simulator> --dart-define=FIXTURES=$PWD/test/fixtures`
 - In debug builds, the reader's Position info panel has a KOReader XPointer test for `juliet.epub`.

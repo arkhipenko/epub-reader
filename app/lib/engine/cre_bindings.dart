@@ -10,7 +10,7 @@ import 'package:ffi/ffi.dart';
 final class CreDoc extends Opaque {}
 
 /// The C interface version this file is written for (CRE_FFI_VERSION).
-const int kCreFfiVersion = 4;
+const int kCreFfiVersion = 5;
 
 /// cre_doc_draw_page() flag: invert images (for the dark theme, which
 /// inverts the whole page afterwards).
@@ -29,6 +29,7 @@ class CreBindings {
       ),
       _fontsDone = lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('cre_fonts_done'),
       latestDomVersion = lib.lookupFunction<Int32 Function(), int Function()>('cre_latest_dom_version'),
+      setGammaIndex = lib.lookupFunction<Void Function(Int32), void Function(int)>('cre_set_gamma_index'),
       docNew = lib.lookupFunction<Pointer<CreDoc> Function(Int32, Int32), Pointer<CreDoc> Function(int, int)>(
         'cre_doc_new',
       ),
@@ -187,6 +188,10 @@ class CreBindings {
   final int Function(Pointer<Utf8>) _registerFont;
   final void Function(Pointer<Utf8>) _fontsDone;
   final int Function() latestDomVersion;
+
+  /// Font contrast: index into the crengine gamma table (15 is gamma 1.0).
+  /// It is global to the engine and needs only a redraw.
+  final void Function(int) setGammaIndex;
   final Pointer<CreDoc> Function(int, int) docNew;
   final void Function(Pointer<CreDoc>) docFree;
   final void Function(Pointer<CreDoc>, int) docApplyDefaults;

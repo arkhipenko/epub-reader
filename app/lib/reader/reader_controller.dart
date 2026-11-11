@@ -14,11 +14,13 @@ import '../engine/cre_engine.dart';
 import '../sync/kosync_decision.dart';
 import '../sync/kosync_session.dart';
 import '../sync/partial_md5.dart';
+import 'advanced_settings.dart';
 import 'back_stack.dart';
 import 'chapters.dart';
 import 'power.dart';
 import 'reader_settings.dart';
 import 'reader_theme.dart';
+import 'style_tweaks.dart';
 
 /// Progress sync output for the reader screen.
 sealed class SyncEvent {}
@@ -59,8 +61,11 @@ class SearchState {
 }
 
 class ReaderController extends ChangeNotifier {
-  ReaderController({required this.services, required this.path, this.jumpTo}) : _settings = services.settings.value {
+  ReaderController({required this.services, required this.path, this.jumpTo})
+    : _settings = services.settings.value,
+      _advanced = services.advanced.value {
     services.settings.addListener(_onSettingsChanged);
+    services.advanced.addListener(_onAdvancedChanged);
   }
 
   final AppServices services;
@@ -74,6 +79,12 @@ class ReaderController extends ChangeNotifier {
   ReaderSettings _settings;
   ReaderSettings get settings => _settings;
   ReaderTheme get theme => readerThemeById(_settings.themeId);
+
+  /// Common advanced settings.
+  AdvancedSettings _advanced;
+
+  /// Advanced settings of this book.
+  BookSettings bookSettings = const BookSettings();
 
   String? bookId;
   BookInfo? info;
@@ -188,6 +199,10 @@ class ReaderController extends ChangeNotifier {
       // Dark themes draw black on white and invert on screen.
       backgroundRgb: t.isDark ? 0xFFFFFF : t.backgroundRgb,
       textRgb: t.isDark ? 0x000000 : t.textRgb,
+      textLanguage: bookSettings.language,
+      props: _advanced.engineProps(),
+      extraCss: buildTweakCss(_advanced, bookSettings),
+      gammaIndex: _advanced.fontGamma,
     );
   }
 
@@ -225,6 +240,7 @@ class ReaderController extends ChangeNotifier {
       final id = await partialMd5OfFile(path);
       bookId = id;
       final saved = await services.db.bookById(id);
+      bookSettings = BookSettings.decode(saved?.settings);
       final r = await _engine.open(
         path,
         width: size.width.toInt(),
@@ -232,6 +248,7 @@ class ReaderController extends ChangeNotifier {
         dpi: (160 * _dpr).round(),
         layout: _layout(),
         xpointer: jumpTo ?? saved?.lastXPointer,
+        languageHint: saved?.language,
       );
       _renderSize = size;
       info = r.info;
@@ -286,15 +303,49 @@ class ReaderController extends ChangeNotifier {
     _settings = next;
     final relayout = old.layoutDiffers(next) || old.themeId != next.themeId;
     if (relayout && isOpen) {
-      _serial(() async {
-        final r = await _engine.setLayout(_layout());
-        _clearPages();
-        toc = r.toc;
-        await _setPosition(r.position);
-      });
+      _relayout();
     } else {
       notifyListeners();
     }
+  }
+
+  /// Lays the book out again with the current settings and keeps the
+  /// reading position.
+  Future<void> _relayout() => _serial(() async {
+    final r = await _engine.setLayout(_layout());
+    _clearPages();
+    toc = r.toc;
+    await _setPosition(r.position);
+  });
+
+  void _onAdvancedChanged() {
+    final next = services.advanced.value;
+    final old = _advanced;
+    _advanced = next;
+    if (!isOpen) return;
+    if (old.layoutDiffers(next)) {
+      _relayout();
+    } else if (old.fontGamma != next.fontGamma) {
+      // Contrast changes how the engine draws glyphs, not the layout.
+      _serial(() async {
+        await _engine.setGamma(next.fontGamma);
+        final p = position;
+        if (p == null) return;
+        _clearPages();
+        await _setPosition(p);
+      });
+    }
+  }
+
+  /// Changes the advanced settings of this book, stores them with the book
+  /// and lays the book out again.
+  Future<void> updateBookSettings(BookSettings value) async {
+    if (value == bookSettings) return;
+    bookSettings = value;
+    notifyListeners();
+    final id = bookId;
+    if (id != null) await services.db.saveBookSettings(id, value.encode());
+    if (isOpen) await _relayout();
   }
 
   /// Shows the engine position, then renders the pages around it.
@@ -816,6 +867,7 @@ class ReaderController extends ChangeNotifier {
   @override
   void dispose() {
     services.settings.removeListener(_onSettingsChanged);
+    services.advanced.removeListener(_onAdvancedChanged);
     _annotationSub?.cancel();
     _resizeTimer?.cancel();
     _resumePullTimer?.cancel();

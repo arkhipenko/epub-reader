@@ -9,6 +9,7 @@ import '../app_services.dart';
 import '../data/database.dart';
 import '../dict/dictionary_screens.dart';
 import '../opds/opds_screens.dart';
+import '../reader/advanced_screens.dart';
 import '../reader/reader_screen.dart';
 import '../sync/kosync_settings_screen.dart';
 import 'annotations_screen.dart';
@@ -529,6 +530,11 @@ class _Sidebar extends StatelessWidget {
             leading: const Icon(Icons.sync),
             title: const Text('Progress sync'),
             onTap: () => onOpenScreen(const KoSyncSettingsScreen()),
+          ),
+          ListTile(
+            leading: const Icon(Icons.tune),
+            title: const Text('Advanced'),
+            onTap: () => onOpenScreen(const AdvancedScreen()),
           ),
         ],
       ),

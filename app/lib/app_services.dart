@@ -12,6 +12,7 @@ import 'engine/cre_engine.dart';
 import 'engine/engine_assets.dart';
 import 'library/library_scanner.dart';
 import 'library/library_settings.dart';
+import 'reader/advanced_settings.dart';
 import 'reader/last_book.dart';
 import 'reader/reader_settings.dart';
 import 'sync/kosync_service.dart';
@@ -21,6 +22,7 @@ class AppServices {
     this.db,
     this.engine,
     this.settings,
+    this.advanced,
     this.kosync,
     this.library,
     this.scanner,
@@ -57,7 +59,12 @@ class AppServices {
   /// Current reading settings. The reader listens to this.
   final ValueNotifier<ReaderSettings> settings;
 
+  /// Common advanced settings (library menu: Advanced). The reader listens
+  /// to this.
+  final ValueNotifier<AdvancedSettings> advanced;
+
   static const String _settingsKey = 'reader_settings';
+  static const String _advancedKey = 'advanced_settings';
   static const String _libraryKey = 'library_settings';
 
   static Future<AppServices> start() async {
@@ -65,6 +72,7 @@ class AppServices {
     final paths = await prepareEngineData();
     final engine = await CreEngine.start(dataDir: paths.dataDir, cacheDir: paths.cacheDir);
     final settings = ReaderSettings.decode(await db.readPref(_settingsKey));
+    final advanced = AdvancedSettings.decode(await db.readPref(_advancedKey));
     final kosync = await KoSyncService.create(db, deviceModel: await _deviceModel());
     // Send progress that was queued while offline.
     kosync.drainQueue().ignore();
@@ -87,6 +95,7 @@ class AppServices {
       db,
       engine,
       ValueNotifier(settings),
+      ValueNotifier(advanced),
       kosync,
       ValueNotifier(library),
       scanner,
@@ -111,6 +120,11 @@ class AppServices {
       if (Platform.isIOS) return (await info.iosInfo).model;
     } catch (_) {}
     return Platform.operatingSystem;
+  }
+
+  Future<void> updateAdvanced(AdvancedSettings value) async {
+    advanced.value = value;
+    await db.writePref(_advancedKey, value.encode());
   }
 
   Future<void> updateSettings(ReaderSettings value) async {

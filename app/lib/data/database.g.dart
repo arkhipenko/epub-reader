@@ -191,6 +191,15 @@ class $BooksTable extends Books with TableInfo<$BooksTable, Book> {
     defaultConstraints: GeneratedColumn.constraintIsAlways('CHECK ("missing" IN (0, 1))'),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _settingsMeta = const VerificationMeta('settings');
+  @override
+  late final GeneratedColumn<String> settings = GeneratedColumn<String>(
+    'settings',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -212,6 +221,7 @@ class $BooksTable extends Books with TableInfo<$BooksTable, Book> {
     favorite,
     deletedAt,
     missing,
+    settings,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -285,6 +295,9 @@ class $BooksTable extends Books with TableInfo<$BooksTable, Book> {
     if (data.containsKey('missing')) {
       context.handle(_missingMeta, missing.isAcceptableOrUnknown(data['missing']!, _missingMeta));
     }
+    if (data.containsKey('settings')) {
+      context.handle(_settingsMeta, settings.isAcceptableOrUnknown(data['settings']!, _settingsMeta));
+    }
     return context;
   }
 
@@ -313,6 +326,7 @@ class $BooksTable extends Books with TableInfo<$BooksTable, Book> {
       favorite: attachedDatabase.typeMapping.read(DriftSqlType.bool, data['${effectivePrefix}favorite'])!,
       deletedAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}deleted_at']),
       missing: attachedDatabase.typeMapping.read(DriftSqlType.bool, data['${effectivePrefix}missing'])!,
+      settings: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}settings']),
     );
   }
 
@@ -355,6 +369,10 @@ class Book extends DataClass implements Insertable<Book> {
 
   /// The file was not found at the last scan.
   final bool missing;
+
+  /// Schema 4: advanced settings of this book (BookSettings JSON). Null: all
+  /// values are the defaults.
+  final String? settings;
   const Book({
     required this.id,
     required this.path,
@@ -375,6 +393,7 @@ class Book extends DataClass implements Insertable<Book> {
     required this.favorite,
     this.deletedAt,
     required this.missing,
+    this.settings,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -410,6 +429,9 @@ class Book extends DataClass implements Insertable<Book> {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
     }
     map['missing'] = Variable<bool>(missing);
+    if (!nullToAbsent || settings != null) {
+      map['settings'] = Variable<String>(settings);
+    }
     return map;
   }
 
@@ -434,6 +456,7 @@ class Book extends DataClass implements Insertable<Book> {
       favorite: Value(favorite),
       deletedAt: deletedAt == null && nullToAbsent ? const Value.absent() : Value(deletedAt),
       missing: Value(missing),
+      settings: settings == null && nullToAbsent ? const Value.absent() : Value(settings),
     );
   }
 
@@ -459,6 +482,7 @@ class Book extends DataClass implements Insertable<Book> {
       favorite: serializer.fromJson<bool>(json['favorite']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
       missing: serializer.fromJson<bool>(json['missing']),
+      settings: serializer.fromJson<String?>(json['settings']),
     );
   }
   @override
@@ -484,6 +508,7 @@ class Book extends DataClass implements Insertable<Book> {
       'favorite': serializer.toJson<bool>(favorite),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
       'missing': serializer.toJson<bool>(missing),
+      'settings': serializer.toJson<String?>(settings),
     };
   }
 
@@ -507,6 +532,7 @@ class Book extends DataClass implements Insertable<Book> {
     bool? favorite,
     Value<DateTime?> deletedAt = const Value.absent(),
     bool? missing,
+    Value<String?> settings = const Value.absent(),
   }) => Book(
     id: id ?? this.id,
     path: path ?? this.path,
@@ -527,6 +553,7 @@ class Book extends DataClass implements Insertable<Book> {
     favorite: favorite ?? this.favorite,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
     missing: missing ?? this.missing,
+    settings: settings.present ? settings.value : this.settings,
   );
   Book copyWithCompanion(BooksCompanion data) {
     return Book(
@@ -549,6 +576,7 @@ class Book extends DataClass implements Insertable<Book> {
       favorite: data.favorite.present ? data.favorite.value : this.favorite,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
       missing: data.missing.present ? data.missing.value : this.missing,
+      settings: data.settings.present ? data.settings.value : this.settings,
     );
   }
 
@@ -573,7 +601,8 @@ class Book extends DataClass implements Insertable<Book> {
           ..write('fileModified: $fileModified, ')
           ..write('favorite: $favorite, ')
           ..write('deletedAt: $deletedAt, ')
-          ..write('missing: $missing')
+          ..write('missing: $missing, ')
+          ..write('settings: $settings')
           ..write(')'))
         .toString();
   }
@@ -599,6 +628,7 @@ class Book extends DataClass implements Insertable<Book> {
     favorite,
     deletedAt,
     missing,
+    settings,
   );
   @override
   bool operator ==(Object other) =>
@@ -622,7 +652,8 @@ class Book extends DataClass implements Insertable<Book> {
           other.fileModified == this.fileModified &&
           other.favorite == this.favorite &&
           other.deletedAt == this.deletedAt &&
-          other.missing == this.missing);
+          other.missing == this.missing &&
+          other.settings == this.settings);
 }
 
 class BooksCompanion extends UpdateCompanion<Book> {
@@ -645,6 +676,7 @@ class BooksCompanion extends UpdateCompanion<Book> {
   final Value<bool> favorite;
   final Value<DateTime?> deletedAt;
   final Value<bool> missing;
+  final Value<String?> settings;
   final Value<int> rowid;
   const BooksCompanion({
     this.id = const Value.absent(),
@@ -666,6 +698,7 @@ class BooksCompanion extends UpdateCompanion<Book> {
     this.favorite = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.missing = const Value.absent(),
+    this.settings = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   BooksCompanion.insert({
@@ -688,6 +721,7 @@ class BooksCompanion extends UpdateCompanion<Book> {
     this.favorite = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.missing = const Value.absent(),
+    this.settings = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        path = Value(path),
@@ -712,6 +746,7 @@ class BooksCompanion extends UpdateCompanion<Book> {
     Expression<bool>? favorite,
     Expression<DateTime>? deletedAt,
     Expression<bool>? missing,
+    Expression<String>? settings,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -734,6 +769,7 @@ class BooksCompanion extends UpdateCompanion<Book> {
       if (favorite != null) 'favorite': favorite,
       if (deletedAt != null) 'deleted_at': deletedAt,
       if (missing != null) 'missing': missing,
+      if (settings != null) 'settings': settings,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -758,6 +794,7 @@ class BooksCompanion extends UpdateCompanion<Book> {
     Value<bool>? favorite,
     Value<DateTime?>? deletedAt,
     Value<bool>? missing,
+    Value<String?>? settings,
     Value<int>? rowid,
   }) {
     return BooksCompanion(
@@ -780,6 +817,7 @@ class BooksCompanion extends UpdateCompanion<Book> {
       favorite: favorite ?? this.favorite,
       deletedAt: deletedAt ?? this.deletedAt,
       missing: missing ?? this.missing,
+      settings: settings ?? this.settings,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -844,6 +882,9 @@ class BooksCompanion extends UpdateCompanion<Book> {
     if (missing.present) {
       map['missing'] = Variable<bool>(missing.value);
     }
+    if (settings.present) {
+      map['settings'] = Variable<String>(settings.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -872,6 +913,7 @@ class BooksCompanion extends UpdateCompanion<Book> {
           ..write('favorite: $favorite, ')
           ..write('deletedAt: $deletedAt, ')
           ..write('missing: $missing, ')
+          ..write('settings: $settings, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2434,6 +2476,7 @@ typedef $$BooksTableCreateCompanionBuilder = BooksCompanion Function({
   Value<bool> favorite,
   Value<DateTime?> deletedAt,
   Value<bool> missing,
+  Value<String?> settings,
   Value<int> rowid,
 });
 typedef $$BooksTableUpdateCompanionBuilder = BooksCompanion Function({
@@ -2456,6 +2499,7 @@ typedef $$BooksTableUpdateCompanionBuilder = BooksCompanion Function({
   Value<bool> favorite,
   Value<DateTime?> deletedAt,
   Value<bool> missing,
+  Value<String?> settings,
   Value<int> rowid,
 });
 
@@ -2551,6 +2595,9 @@ class $$BooksTableFilterComposer extends Composer<_$AppDatabase, $BooksTable> {
 
   ColumnFilters<bool> get missing =>
       $composableBuilder(column: $table.missing, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get settings =>
+      $composableBuilder(column: $table.settings, builder: (column) => ColumnFilters(column));
 
   Expression<bool> shelfBooksRefs(Expression<bool> Function($$ShelfBooksTableFilterComposer f) f) {
     final $$ShelfBooksTableFilterComposer composer = $composerBuilder(
@@ -2652,6 +2699,9 @@ class $$BooksTableOrderingComposer extends Composer<_$AppDatabase, $BooksTable> 
 
   ColumnOrderings<bool> get missing =>
       $composableBuilder(column: $table.missing, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get settings =>
+      $composableBuilder(column: $table.settings, builder: (column) => ColumnOrderings(column));
 }
 
 class $$BooksTableAnnotationComposer extends Composer<_$AppDatabase, $BooksTable> {
@@ -2703,6 +2753,8 @@ class $$BooksTableAnnotationComposer extends Composer<_$AppDatabase, $BooksTable
   GeneratedColumn<DateTime> get deletedAt => $composableBuilder(column: $table.deletedAt, builder: (column) => column);
 
   GeneratedColumn<bool> get missing => $composableBuilder(column: $table.missing, builder: (column) => column);
+
+  GeneratedColumn<String> get settings => $composableBuilder(column: $table.settings, builder: (column) => column);
 
   Expression<T> shelfBooksRefs<T extends Object>(Expression<T> Function($$ShelfBooksTableAnnotationComposer a) f) {
     final $$ShelfBooksTableAnnotationComposer composer = $composerBuilder(
@@ -2785,6 +2837,7 @@ class $$BooksTableTableManager
                 Value<bool> favorite = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<bool> missing = const Value.absent(),
+                Value<String?> settings = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => BooksCompanion(
                 id: id,
@@ -2806,6 +2859,7 @@ class $$BooksTableTableManager
                 favorite: favorite,
                 deletedAt: deletedAt,
                 missing: missing,
+                settings: settings,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2829,6 +2883,7 @@ class $$BooksTableTableManager
                 Value<bool> favorite = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<bool> missing = const Value.absent(),
+                Value<String?> settings = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => BooksCompanion.insert(
                 id: id,
@@ -2850,6 +2905,7 @@ class $$BooksTableTableManager
                 favorite: favorite,
                 deletedAt: deletedAt,
                 missing: missing,
+                settings: settings,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) =>

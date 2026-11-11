@@ -18,6 +18,17 @@ void main() {
     expect(b.progress, 0.25);
   });
 
+  test('book settings are stored with the book and can be cleared', () async {
+    await db.upsertBook(id: 'abc', path: '/a.epub', title: 'T', authors: 'A', format: 'EPUB', language: 'ru');
+    expect((await db.bookById('abc'))!.settings, isNull);
+    await db.saveBookSettings('abc', '{"language":"ru"}');
+    // Opening the book again keeps the settings.
+    await db.upsertBook(id: 'abc', path: '/a.epub', title: 'T', authors: 'A', format: 'EPUB', language: 'ru');
+    expect((await db.bookById('abc'))!.settings, '{"language":"ru"}');
+    await db.saveBookSettings('abc', null);
+    expect((await db.bookById('abc'))!.settings, isNull);
+  });
+
   test('prefs store and replace values', () async {
     expect(await db.readPref('k'), isNull);
     await db.writePref('k', '1');

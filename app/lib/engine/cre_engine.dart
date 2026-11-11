@@ -11,10 +11,11 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import 'cre_bindings.dart';
+import 'text_language.dart';
 
 /// Layout settings for the open book. Sizes are physical pixels.
-/// A change to any field except the colors makes the engine lay out the
-/// book again.
+/// A change to any field except the colors and the gamma index makes the
+/// engine lay out the book again.
 class EngineLayout {
   const EngineLayout({
     required this.fontFace,
@@ -29,6 +30,10 @@ class EngineLayout {
     required this.embeddedFonts,
     required this.backgroundRgb,
     required this.textRgb,
+    this.textLanguage,
+    this.props = const {},
+    this.extraCss = '',
+    this.gammaIndex = 15,
   });
 
   final String fontFace;
@@ -44,6 +49,19 @@ class EngineLayout {
   final int backgroundRgb;
   final int textRgb;
 
+  /// Language tag for hyphenation and line breaking, or null to use the
+  /// language of the book.
+  final String? textLanguage;
+
+  /// More engine properties, by crengine property name.
+  final Map<String, int> props;
+
+  /// CSS that the engine applies after its base style sheet (style tweaks).
+  final String extraCss;
+
+  /// Font contrast: index into the crengine gamma table (15 is gamma 1.0).
+  final int gammaIndex;
+
   Map<String, Object?> toMap() => {
     'fontFace': fontFace,
     'fontSize': fontSize,
@@ -54,6 +72,10 @@ class EngineLayout {
     'embFonts': embeddedFonts,
     'bg': backgroundRgb,
     'fg': textRgb,
+    'lang': textLanguage,
+    'props': props,
+    'css': extraCss,
+    'gamma': gammaIndex,
   };
 }
 
@@ -281,6 +303,8 @@ class CreEngine {
       .toList();
 
   /// Opens a book. When [xpointer] is given and found, the book opens there.
+  /// [languageHint] is the language of the book when the library knows it:
+  /// the engine then has the right language before it loads the book.
   Future<OpenResult> open(
     String path, {
     required int width,
@@ -288,6 +312,7 @@ class CreEngine {
     required int dpi,
     required EngineLayout layout,
     String? xpointer,
+    String? languageHint,
   }) async {
     final r =
         (await _call('open', {
@@ -298,6 +323,7 @@ class CreEngine {
               'isFb2': isFb2Path(path),
               'layout': layout.toMap(),
               'xpointer': xpointer,
+              'langHint': languageHint,
             }))!
             as Map;
     final info = jsonDecode(r['info'] as String) as Map<String, dynamic>;
@@ -319,6 +345,10 @@ class CreEngine {
     final r = (await _call('setLayout', {'layout': layout.toMap()}))! as Map;
     return LayoutResult(position: EnginePosition.fromMap(r['pos'] as Map), toc: _toc(r['toc']));
   }
+
+  /// Changes the font contrast. The page count and the position stay the
+  /// same; the caller draws the pages again.
+  Future<void> setGamma(int index) => _call('setGamma', {'index': index});
 
   /// Changes the page size and keeps the reading position.
   Future<LayoutResult> resize(int width, int height) async {
@@ -508,6 +538,9 @@ class _Worker {
       case 'setLayout':
         _requireDoc();
         return _relayout(() => _applyLayout(_doc, (a['layout'] as Map).cast<String, Object?>()));
+      case 'setGamma':
+        _b.setGammaIndex(a['index'] as int);
+        return null;
       case 'resize':
         _requireDoc();
         return _relayout(() {
@@ -602,8 +635,37 @@ class _Worker {
     return {'faces': _b.fontFacesJson() ?? '[]', 'dom': _b.latestDomVersion()};
   }
 
+  /// Base style sheet of the open book (epub.css or fb2.css).
+  String _cssFile = '';
+
+  /// The style tweak CSS that the engine has now. Null: none set yet.
+  String? _appliedCss;
+
+  /// The language of the open book, from the library at first and from the
+  /// book after the load. Null: not known.
+  String? _bookLanguage;
+
+  /// Sets the language for hyphenation and line breaking rules (KOReader
+  /// CreDocument:setTextMainLang). The language is global to the engine, so
+  /// it stays from the book before. The engine does nothing when the tag is
+  /// the one it has.
+  void _setLanguage(Pointer<CreDoc> d, String tag) => _b.docSetString(d, 'crengine.textlang.main.lang', tag);
+
   void _applyLayout(Pointer<CreDoc> d, Map<String, Object?> l) {
     final m = (l['margins'] as List).cast<int>();
+    // KOReader CreDocument:setStyleSheet(): the base file, then the tweaks.
+    final css = l['css'] as String? ?? '';
+    if (css != _appliedCss) {
+      _b.docSetStylesheet(d, _cssFile, css);
+      _appliedCss = css;
+    }
+    _b.setGammaIndex(l['gamma'] as int? ?? 15);
+    for (final e in ((l['props'] as Map?) ?? const {}).entries) {
+      _b.docSetInt(d, e.key as String, e.value as int);
+    }
+    // The language set for this book, else the language of the book, else
+    // the engine default (KOReader ReaderTypography).
+    _setLanguage(d, fixLanguageTag(l['lang'] as String?) ?? _bookLanguage ?? kDefaultTextLanguage);
     _b.docSetFontFace(d, l['fontFace'] as String);
     _b.docSetFontSize(d, l['fontSize'] as int);
     _b.docSetInterline(d, l['interline'] as int);
@@ -623,13 +685,27 @@ class _Worker {
     _b.docApplyDefaults(d, a['dpi'] as int);
     // KOReader CreDocument:init(): fb2.css for FB2 and TXT, epub.css for the rest.
     final css = (a['isFb2'] as bool) ? 'fb2.css' : 'epub.css';
-    _b.docSetStylesheet(d, '$_dataDir/css/$css', '');
-    _applyLayout(d, (a['layout'] as Map).cast<String, Object?>());
+    _cssFile = '$_dataDir/css/$css';
+    _appliedCss = null;
+    _bookLanguage = fixLanguageTag(a['langHint'] as String?);
+    final layout = (a['layout'] as Map).cast<String, Object?>();
+    // The language is set before the load when it is known. A change after
+    // the load makes the engine prepare all styles again (KOReader
+    // ReaderTypography:onReadSettings).
+    _applyLayout(d, layout);
     if (!_b.docLoad(d, a['path'] as String)) {
       _b.docFree(d);
       throw EngineException('cannot open ${a['path']}');
     }
     _doc = d;
+    // The book is loaded, so its language is known for sure (KOReader
+    // ReaderTypography:onPreRenderDocument). A language set for this book
+    // stays.
+    final loaded = fixLanguageTag((jsonDecode(_b.docInfoJson(d) ?? '{}') as Map)['language'] as String?);
+    if (loaded != null) _bookLanguage = loaded;
+    if (fixLanguageTag(layout['lang'] as String?) == null && _bookLanguage != null) {
+      _setLanguage(d, _bookLanguage!);
+    }
     _b.docRender(_doc);
     final xp = a['xpointer'] as String?;
     final found = xp != null && xp.isNotEmpty && _b.docGotoXPointer(_doc, xp);

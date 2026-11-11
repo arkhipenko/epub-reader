@@ -13,6 +13,7 @@ import '../app_services.dart';
 import '../data/database.dart';
 import '../dict/dictionary_screens.dart';
 import '../sync/kosync_settings_screen.dart';
+import 'advanced_screens.dart';
 import 'reader_controller.dart';
 import 'tap_zones.dart';
 import 'widgets/annotation_widgets.dart';
@@ -627,6 +628,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                       c.pullProgress(interactive: true);
                     case 'sync':
                       Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const KoSyncSettingsScreen()));
+                    case 'advanced':
+                      Navigator.of(context)
+                          .push(MaterialPageRoute<void>(builder: (_) => BookAdvancedScreen(controller: c)));
                     case 'info':
                       showPositionInfo(context, c);
                   }
@@ -639,6 +643,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                   PopupMenuItem(value: 'pull', child: Text('Pull progress from other devices')),
                   PopupMenuItem(value: 'sync', child: Text('Progress sync settings')),
                   PopupMenuDivider(),
+                  PopupMenuItem(value: 'advanced', child: Text('Advanced for this book')),
                   PopupMenuItem(value: 'info', child: Text('Position info')),
                 ],
               ),

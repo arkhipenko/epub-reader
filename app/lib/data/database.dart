@@ -45,6 +45,10 @@ class Books extends Table {
   /// The file was not found at the last scan.
   BoolColumn get missing => boolean().withDefault(const Constant(false))();
 
+  /// Schema 4: advanced settings of this book (BookSettings JSON). Null: all
+  /// values are the defaults.
+  TextColumn get settings => text().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
@@ -117,7 +121,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? driftDatabase(name: 'epub_reader'));
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -142,6 +146,9 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 3) {
         await m.createTable(annotations);
+      }
+      if (from < 4) {
+        await m.addColumn(books, books.settings);
       }
     },
     beforeOpen: (details) async {
@@ -231,6 +238,11 @@ class AppDatabase extends _$AppDatabase {
   Future<void> savePosition(String id, String xpointer, double progress) => (update(
     books,
   )..where((b) => b.id.equals(id))).write(BooksCompanion(lastXPointer: Value(xpointer), progress: Value(progress)));
+
+  /// Stores the advanced settings of a book (BookSettings JSON, or null for
+  /// the defaults).
+  Future<void> saveBookSettings(String id, String? settings) =>
+      (update(books)..where((b) => b.id.equals(id))).write(BooksCompanion(settings: Value(settings)));
 
   Future<void> setFavorite(String id, bool value) =>
       (update(books)..where((b) => b.id.equals(id))).write(BooksCompanion(favorite: Value(value)));

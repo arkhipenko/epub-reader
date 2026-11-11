@@ -99,6 +99,10 @@ void cre_fonts_done(const char *default_face) {
 
 int cre_latest_dom_version(void) { return gDOMVersionCurrent; }
 
+void cre_set_gamma_index(int index) {
+    if (fontMan) fontMan->SetGammaIndex(index);
+}
+
 // Writes the cover stream of the loaded document to `out`. Returns true on success.
 static bool write_cover(LVDocView *v, const char *out) {
     LVStreamRef stream = v->getCoverPageImageStream();

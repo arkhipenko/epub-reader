@@ -20,7 +20,7 @@ extern "C" {
 #define CRE_API __attribute__((visibility("default")))
 
 /* Version of this C interface. Increase it when a signature changes. */
-#define CRE_FFI_VERSION 4
+#define CRE_FFI_VERSION 5
 
 /* Flags for cre_doc_draw_page(). */
 #define CRE_DRAW_INVERT_IMAGES 1
@@ -36,6 +36,10 @@ CRE_API int cre_register_font(const char *path);
 CRE_API void cre_fonts_done(const char *default_face);
 CRE_API int cre_latest_dom_version(void);
 CRE_API int cre_normalized_xpointers_dom_version(void);
+/* Font contrast: index into the crengine gamma table, 0 to 56. 15 is gamma
+ * 1.0 (no change), the KOReader default. It is global to the font manager
+ * and needs no new layout, only a redraw (KOReader cre.setGammaIndex). */
+CRE_API void cre_set_gamma_index(int index);
 /* JSON array of the registered font face names, sorted. */
 CRE_API char *cre_font_faces_json(void);
 

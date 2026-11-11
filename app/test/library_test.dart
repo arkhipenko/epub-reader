@@ -226,6 +226,10 @@ void main() {
     expect(b.favorite, isFalse);
     expect(b.missing, isFalse);
     expect(b.fileSize, isNull);
+    // Schema 4: the book settings column.
+    expect(b.settings, isNull);
+    await db.saveBookSettings('m1', '{"language":"ru"}');
+    expect((await db.bookById('m1'))!.settings, '{"language":"ru"}');
     // The upgrade of an existing database adds no catalog (new installs only).
     expect(await db.watchCatalogs().first, isEmpty);
     final shelf = await db.addShelf('Fiction');
@@ -234,5 +238,28 @@ void main() {
     await db.saveScannedBook(const BooksCompanion(id: Value('m1'), coverPath: Value('/c/m1')));
     expect((await db.bookById('m1'))!.coverPath, '/c/m1');
     await db.close();
+  });
+
+  test('migration from schema 3 adds the book settings and keeps the data', () async {
+    final dir = await Directory.systemTemp.createTemp('epub_reader_db');
+    final file = File('${dir.path}/app.sqlite');
+    // Make a schema 3 database: the current tables without the new column.
+    var db = AppDatabase(NativeDatabase(file));
+    await db.upsertBook(id: 'b3', path: '/b.epub', title: 'Three', authors: 'A', format: 'EPUB', language: 'ru');
+    await db.savePosition('b3', '/body/DocFragment[2]/body/p[1]/text().0', 0.4);
+    await db.customStatement('ALTER TABLE books DROP COLUMN settings');
+    await db.customStatement('PRAGMA user_version = 3');
+    await db.close();
+
+    db = AppDatabase(NativeDatabase(file));
+    final b = (await db.bookById('b3'))!;
+    expect(b.title, 'Three');
+    expect(b.lastXPointer, '/body/DocFragment[2]/body/p[1]/text().0');
+    expect(b.progress, 0.4);
+    expect(b.settings, isNull);
+    await db.saveBookSettings('b3', '{"ignoreMargins":true}');
+    expect((await db.bookById('b3'))!.settings, '{"ignoreMargins":true}');
+    await db.close();
+    await dir.delete(recursive: true);
   });
 }
