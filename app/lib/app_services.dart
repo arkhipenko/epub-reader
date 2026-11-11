@@ -12,6 +12,7 @@ import 'engine/cre_engine.dart';
 import 'engine/engine_assets.dart';
 import 'library/library_scanner.dart';
 import 'library/library_settings.dart';
+import 'reader/last_book.dart';
 import 'reader/reader_settings.dart';
 import 'sync/kosync_service.dart';
 
@@ -26,6 +27,8 @@ class AppServices {
     this.booksDir,
     this.dictionaries,
     this.appVersion,
+    this.lastBook,
+    this.resumeBook,
   );
 
   final AppDatabase db;
@@ -41,8 +44,15 @@ class AppServices {
   final DictionaryService dictionaries;
 
   /// Version name and build number of the installed app, for example
-  /// "1.0.0 (1)". They come from the version line in pubspec.yaml.
+  /// "1.0.1 (1)". They come from the version line in pubspec.yaml.
   final String appVersion;
+
+  /// The book that is open in the reader, kept over an app restart.
+  final LastOpenBook lastBook;
+
+  /// The book to open at start: it was open when the app closed and the
+  /// file still exists. Null: the app starts in the library.
+  final String? resumeBook;
 
   /// Current reading settings. The reader listens to this.
   final ValueNotifier<ReaderSettings> settings;
@@ -71,6 +81,8 @@ class AppServices {
     );
     final dictionaries = await DictionaryService.create(db);
     final info = await PackageInfo.fromPlatform();
+    final lastBook = LastOpenBook(db);
+    final resumeBook = await lastBook.take();
     return AppServices._(
       db,
       engine,
@@ -81,6 +93,8 @@ class AppServices {
       booksDir,
       dictionaries,
       formatAppVersion(info.version, info.buildNumber),
+      lastBook,
+      resumeBook,
     );
   }
 
@@ -105,7 +119,7 @@ class AppServices {
   }
 }
 
-/// Version text for the settings panel: "1.0.0 (1)".
+/// Version text for the settings panel: "1.0.1 (1)".
 String formatAppVersion(String name, String build) => build.isEmpty ? name : '$name ($build)';
 
 /// Gives the widget tree access to [AppServices].

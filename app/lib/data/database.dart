@@ -316,4 +316,6 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> writePref(String key, String value) =>
       into(prefs).insertOnConflictUpdate(PrefsCompanion.insert(key: key, value: value));
+
+  Future<void> deletePref(String key) => (delete(prefs)..where((p) => p.key.equals(key))).go();
 }

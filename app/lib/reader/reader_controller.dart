@@ -259,6 +259,8 @@ class ReaderController extends ChangeNotifier {
         }
       });
       await _setPosition(r.position);
+      // Open this book again if the app closes while it shows.
+      if (!_disposed) unawaited(services.lastBook.opened(path));
       // A jump (from a note in the library) is not a sync conflict to resolve.
       if (kosync.current.autoSync && jumpTo == null) unawaited(_autoPull());
     } catch (e) {
@@ -795,6 +797,8 @@ class ReaderController extends ChangeNotifier {
     _resizeTimer?.cancel();
     _resumePullTimer?.cancel();
     unawaited(saveNow());
+    // The user closed the book: the next start opens the library.
+    unawaited(services.lastBook.closed(path));
     // KOReader onCloseDocument: push the position (a failure is queued).
     final sync = _sync;
     final local = _local();

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_services.dart';
 import 'library/library_screen.dart';
+import 'reader/reader_screen.dart';
 import 'reader/reader_settings.dart';
 import 'reader/reader_theme.dart';
 
@@ -75,7 +76,14 @@ class _EpubReaderAppState extends State<EpubReaderApp> {
               title: 'KOReader',
               debugShowCheckedModeBanner: false,
               theme: _theme(settings.accentId),
-              home: const LibraryScreen(),
+              routes: {Navigator.defaultRouteName: (_) => const LibraryScreen()},
+              // The library, and on top of it the book that was open when
+              // the app closed. Back from that book goes to the library.
+              onGenerateInitialRoutes: (_) => [
+                MaterialPageRoute<void>(builder: (_) => const LibraryScreen()),
+                if (services.resumeBook case final path?)
+                  MaterialPageRoute<void>(builder: (_) => ReaderScreen(path: path)),
+              ],
             ),
           ),
         );
