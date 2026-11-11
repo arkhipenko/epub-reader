@@ -73,7 +73,7 @@ class _EpubReaderAppState extends State<EpubReaderApp> {
           child: ValueListenableBuilder<ReaderSettings>(
             valueListenable: services.settings,
             builder: (context, settings, _) => MaterialApp(
-              title: 'KOReader',
+              title: 'KOReader Mobile',
               debugShowCheckedModeBanner: false,
               theme: _theme(settings.accentId),
               routes: {Navigator.defaultRouteName: (_) => const LibraryScreen()},
