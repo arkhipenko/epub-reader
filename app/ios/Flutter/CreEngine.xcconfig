@@ -1,0 +1,10 @@
+// crengine for iOS: CreEngine/<sdk>/libcre_ffi.a, made by native/build-ios.sh
+// (not in git). The engine is linked into the app, and Dart finds it with
+// DynamicLibrary.process(). Thus the cre_* symbols must stay global:
+// force-load the archive, and strip only non-global symbols in release builds.
+CRE_ENGINE_LIB = $(PROJECT_DIR)/CreEngine/$(PLATFORM_NAME)/libcre_ffi.a
+OTHER_LDFLAGS = $(inherited) -force_load "$(CRE_ENGINE_LIB)" -lc++
+STRIP_STYLE = non-global
+
+// The engine is built for arm64 only. Intel Macs cannot run the simulator build.
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64

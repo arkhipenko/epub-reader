@@ -9,9 +9,10 @@ claude-start
 # All folders that start with an underscore (reference sources, scratch work)
 _*/
 
-# Native build output and prebuilt engine libraries (made by native/build-android.sh)
+# Native build output and prebuilt engine libraries (made by native/build-android.sh and native/build-ios.sh)
 native/out/
 app/android/app/src/main/jniLibs/
+app/ios/CreEngine/
 app/assets/engine/
 
 # Editors and OS files
