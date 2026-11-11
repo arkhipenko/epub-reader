@@ -2,8 +2,11 @@
 // (not in git). The engine is linked into the app, and Dart finds it with
 // DynamicLibrary.process(). Thus the cre_* symbols must stay global:
 // force-load the archive, and strip only non-global symbols in release builds.
+// No code in the app calls the cre_* functions directly. Thus release builds
+// (dead code stripping, no Runner.debug.dylib) remove them unless the linker
+// keeps the global symbols of the app (-export_dynamic).
 CRE_ENGINE_LIB = $(PROJECT_DIR)/CreEngine/$(PLATFORM_NAME)/libcre_ffi.a
-OTHER_LDFLAGS = $(inherited) -force_load "$(CRE_ENGINE_LIB)" -lc++
+OTHER_LDFLAGS = $(inherited) -force_load "$(CRE_ENGINE_LIB)" -lc++ -Wl,-export_dynamic
 STRIP_STYLE = non-global
 
 // The engine is built for arm64 only. Intel Macs cannot run the simulator build.
