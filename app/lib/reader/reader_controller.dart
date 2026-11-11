@@ -14,6 +14,7 @@ import '../engine/cre_engine.dart';
 import '../sync/kosync_decision.dart';
 import '../sync/kosync_session.dart';
 import '../sync/partial_md5.dart';
+import 'back_stack.dart';
 import 'chapters.dart';
 import 'power.dart';
 import 'reader_settings.dart';
@@ -124,7 +125,7 @@ class ReaderController extends ChangeNotifier {
 
   TextSelection? selection;
   SearchState? search;
-  final List<String> _backStack = [];
+  final BackStack _backStack = BackStack();
   bool get canGoBack => _backStack.isNotEmpty;
   (ui.Offset, ui.Offset)? _pendingExtend;
   bool _extending = false;
@@ -389,9 +390,14 @@ class ReaderController extends ChangeNotifier {
     if (target < 1 || target > pageCount) return;
     _direction = delta < 0 ? -1 : 1;
     speed.pageTurned(DateTime.now());
+    // After a few turns the user has moved on: the places to go back to
+    // are forgotten and the undo button hides.
+    final forgot = _backStack.pageTurned();
     if (_pages.containsKey(target)) {
       // Show the cached page now. The engine follows.
       displayPage = target;
+      notifyListeners();
+    } else if (forgot) {
       notifyListeners();
     }
     _serial(() async => _setPosition(await _engine.gotoPage(target)));
@@ -402,6 +408,22 @@ class ReaderController extends ChangeNotifier {
     _direction = 1;
     final target = page.clamp(1, pageCount);
     return _serial(() async => _setPosition(await _engine.gotoPage(target)));
+  }
+
+  /// A jump with the page slider. The place before the jump goes on the
+  /// back stack, as for a link: back (or the undo button) returns there.
+  /// A slider moved by accident is then easy to undo.
+  Future<void> jumpToPage(int page) {
+    if (!isOpen) return Future.value();
+    final target = page.clamp(1, pageCount);
+    if (target == displayPage) return Future.value();
+    _direction = 1;
+    return _serial(() async {
+      final from = position?.xpointer;
+      final p = await _engine.gotoPage(target);
+      if (from != null) _backStack.push(from);
+      await _setPosition(p);
+    });
   }
 
   /// [fraction] is 0 to 1.
@@ -653,15 +675,16 @@ class ReaderController extends ChangeNotifier {
       final from = position?.xpointer;
       final p = await _engine.gotoLink(link.href);
       if (p == null) return;
-      if (from != null) _backStack.add(from);
+      if (from != null) _backStack.push(from);
       await _setPosition(p);
     });
   }
 
-  /// Returns to the place before the last followed link.
+  /// Returns to the place before the last followed link or slider jump.
   Future<void> goBack() async {
-    if (_backStack.isEmpty) return;
-    await gotoXPointer(_backStack.removeLast());
+    final place = _backStack.pop();
+    if (place == null) return;
+    await gotoXPointer(place);
     notifyListeners();
   }
 

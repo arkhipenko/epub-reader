@@ -2,6 +2,7 @@
 // highlights, bookmarks, links, search, status line and the menu bars
 // (Koodo layout).
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -438,7 +439,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               bottom: 12,
               child: FloatingActionButton.small(
                 heroTag: null,
-                tooltip: 'Back to the place before the link',
+                tooltip: 'Back to the previous place',
                 onPressed: c.goBack,
                 child: const Icon(Icons.undo),
               ),
@@ -648,14 +649,24 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
   }
 
+  /// Least space below the bottom bar, in logical pixels. The reader hides
+  /// the system bars, so Android can report no bottom inset. The bar then
+  /// sits on the edge where the home and back swipes start.
+  static const double _minBottomGap = 24;
+
   Widget _bottomBar(BuildContext context, ReaderController c) {
     final text = Theme.of(context).textTheme;
+    final bottomGap = math.max(
+      _minBottomGap,
+      math.max(MediaQuery.paddingOf(context).bottom, MediaQuery.systemGestureInsetsOf(context).bottom),
+    );
     return Material(
       elevation: 3,
       child: SafeArea(
         top: false,
+        bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+          padding: EdgeInsets.fromLTRB(8, 8, 8, 8 + bottomGap),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -696,6 +707,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 }
 
 /// Page slider. It moves only on release, because a jump needs a render.
+/// Only a drag of the thumb moves it: a tap or a swipe on the track (for
+/// example the system swipe from the screen edge) does nothing.
 class _ProgressSlider extends StatefulWidget {
   const _ProgressSlider({required this.controller});
 
@@ -720,10 +733,11 @@ class _ProgressSliderState extends State<_ProgressSlider> {
       max: count.toDouble(),
       label: '${value.round()}',
       divisions: count - 1,
+      allowedInteraction: SliderInteraction.slideThumb,
       onChanged: (v) => setState(() => _drag = v),
       onChangeEnd: (v) {
         setState(() => _drag = null);
-        c.gotoPage(v.round());
+        c.jumpToPage(v.round());
       },
     );
   }

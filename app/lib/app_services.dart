@@ -44,7 +44,7 @@ class AppServices {
   final DictionaryService dictionaries;
 
   /// Version name and build number of the installed app, for example
-  /// "1.0.1 (1)". They come from the version line in pubspec.yaml.
+  /// "1.0.2 (1)". They come from the version line in pubspec.yaml.
   final String appVersion;
 
   /// The book that is open in the reader, kept over an app restart.
@@ -119,7 +119,7 @@ class AppServices {
   }
 }
 
-/// Version text for the settings panel: "1.0.1 (1)".
+/// Version text for the settings panel: "1.0.2 (1)".
 String formatAppVersion(String name, String build) => build.isEmpty ? name : '$name ($build)';
 
 /// Gives the widget tree access to [AppServices].
