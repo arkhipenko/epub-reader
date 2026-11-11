@@ -7,6 +7,9 @@
  * - Page numbers are 1-based, as in KOReader.
  * - One CreDoc must be used from one thread only. The engine globals
  *   (fonts, hyphenation, cache) are set up once by cre_init().
+ *
+ * Copyright (C) 2026 Anatoli Arkhipenko
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #ifndef CRE_FFI_H
 #define CRE_FFI_H

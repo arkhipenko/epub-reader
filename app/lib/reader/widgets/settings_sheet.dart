@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 
+import '../../about/about.dart';
 import '../../app_services.dart';
 import '../power.dart';
 import '../reader_settings.dart';
@@ -234,11 +235,18 @@ class _SettingsBody extends StatelessWidget {
           ],
         ),
         Padding(
-          padding: const EdgeInsets.only(top: 24),
-          child: Text(
-            'Version $appVersion',
-            textAlign: TextAlign.center,
-            style: text.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          padding: const EdgeInsets.only(top: 16),
+          // A tap opens About (license, warranty, source code).
+          child: InkWell(
+            onTap: () => showAppAbout(context, appVersion),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'Version $appVersion',
+                textAlign: TextAlign.center,
+                style: text.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
+            ),
           ),
         ),
       ],

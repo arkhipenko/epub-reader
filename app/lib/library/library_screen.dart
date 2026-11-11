@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../about/about.dart';
 import '../app_services.dart';
 import '../data/database.dart';
 import '../dict/dictionary_screens.dart';
@@ -535,6 +536,11 @@ class _Sidebar extends StatelessWidget {
             leading: const Icon(Icons.tune),
             title: const Text('Advanced'),
             onTap: () => onOpenScreen(const AdvancedScreen()),
+          ),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('About'),
+            onTap: () => showAppAbout(context, ServicesScope.of(context).appVersion),
           ),
         ],
       ),

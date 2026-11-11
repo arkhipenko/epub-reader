@@ -4,6 +4,11 @@
  * The engine calls and their order follow the KOReader Lua binding
  * (koreader-base/cre.cpp) and frontend/document/credocument.lua, so that
  * the document model, and with it the XPointers, match KOReader.
+ *
+ * Copyright (C) 2026 Anatoli Arkhipenko
+ * Parts follow koreader-base cre.cpp, Copyright (C) 2012 Hans-Werner Hilse
+ * and the KOReader contributors (GPL-3.0-or-later).
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "cre_ffi.h"
 

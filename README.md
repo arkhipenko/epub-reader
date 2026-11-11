@@ -71,4 +71,28 @@ NOTE: The Xcode build stops with "file not found" for `libcre_ffi.a` until step 
 
 ## License
 
-For personal use. crengine and the KOReader sources are under the GPL and AGPL licenses.
+Copyright (C) 2026 Anatoli Arkhipenko.
+
+This program is free software under the GNU Affero General Public License, version 3 or
+(at your option) any later version. The license text is in `LICENSE`.
+
+The app includes parts from other projects: crengine (GPL), parts of KOReader (AGPL-3.0), fonts
+and libraries. `NOTICE.md` lists them with their licenses and sources. The app shows the same
+notices in About: the library menu, or a tap on the version line in the reading settings.
+
+### Before you give the app to other persons
+
+The GPL and AGPL apply when you give the app to other persons, for example through Google Play.
+They do not apply to your own use.
+
+1. Give the source code of the same version. Make this repository public, or give the source in a
+   different way. Put a tag on the commit of each release build.
+2. Keep the source available. koreader-base, crengine, koreader-fonts and the library sources are
+   on servers that you do not control, and the GPL makes you responsible for them. Keep copies,
+   for example a source archive with each release.
+3. Give the license and the source code address in the store listing.
+
+Google Play permits this. For the Apple App Store, the Free Software Foundation considers that the
+App Store terms add restrictions that the GPL does not permit. A copyright holder of crengine or
+KOReader can ask Apple to remove the app. TestFlight for your own use is not distribution to other
+persons.

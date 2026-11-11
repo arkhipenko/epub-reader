@@ -1,3 +1,9 @@
+Adds the targets ios and ios-simulator to koreader-base (commit b153a4a2).
+Changed files: Makefile.defs, cmake/CMakeLists.txt.
+Changes made 2026-11-10 by Anatoli Arkhipenko for this app (native/build-ios.sh).
+koreader-base is under the GNU Affero General Public License version 3, and
+so are these changes.
+
 diff --git a/Makefile.defs b/Makefile.defs
 index b80474dc..3971e162 100644
 --- a/Makefile.defs
