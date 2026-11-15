@@ -23,7 +23,7 @@ extern "C" {
 #define CRE_API __attribute__((visibility("default")))
 
 /* Version of this C interface. Increase it when a signature changes. */
-#define CRE_FFI_VERSION 5
+#define CRE_FFI_VERSION 6
 
 /* Flags for cre_doc_draw_page(). */
 #define CRE_DRAW_INVERT_IMAGES 1
@@ -138,6 +138,33 @@ CRE_API int cre_doc_goto_link(CreDoc *doc, const char *href);
 /* Order of two XPointers: <0 when a is before b, 0 when equal, >0 after.
  * Returns 0 when one of them is not in the document. */
 CRE_API int cre_doc_compare_xpointers(CreDoc *doc, const char *a, const char *b);
+
+/* ---- Line shift (version 6) ----
+ * The engine lays the book out as one tall strip. A document y is a pixel
+ * row of that strip. A page is a slice of the strip: page image row
+ * (top margin + n) shows document row (page start + n). */
+
+/* Rows of a page image that can hold text: JSON [top, height]. The top
+ * is the top page margin, the height is the page height without the top
+ * and bottom margins. */
+CRE_API char *cre_doc_text_area(CreDoc *doc);
+
+/* Slices of pages first..last (1-based, clamped to the book):
+ * JSON [[page, start, height], ...]. */
+CRE_API char *cre_doc_page_ranges(CreDoc *doc, int first, int last);
+
+/* Page that holds document row y (1-based). A row between two pages gives
+ * the page after it; a row after the last page gives the last page. */
+CRE_API int cre_doc_page_at_y(CreDoc *doc, int y);
+
+/* Text lines that overlap document rows y0..y1: JSON [[top, bottom], ...]
+ * in document order (bottom excluded). A block without text lines (an empty
+ * block with a height) is one entry. */
+CRE_API char *cre_doc_lines_in_range(CreDoc *doc, int y0, int y1);
+
+/* XPointer of the first text at or after document row y (the reading
+ * position of a view whose first row is y), or NULL. */
+CRE_API char *cre_doc_xpointer_at_y(CreDoc *doc, int y);
 
 CRE_API void cre_free(void *p);
 

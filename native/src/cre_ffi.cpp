@@ -18,6 +18,9 @@
 #include "lvdocview.h"
 #include "lvdocviewprops.h"
 #include "lvtinydom.h"
+#include "lvrend.h"
+#include "lvpagesplitter.h"
+#include "lvtextfm.h"
 #include "lvstring.h"
 #include "hyphman.h"
 
@@ -677,6 +680,129 @@ int cre_doc_compare_xpointers(CreDoc *doc, const char *a, const char *b) {
     ldomXPointerEx pb = make_xpointer(doc, b);
     if (pa.isNull() || pb.isNull()) return 0;
     return pa.compare(pb);
+}
+
+// ---- Line shift ----
+
+char *cre_doc_text_area(CreDoc *doc) {
+    if (!doc) return NULL;
+    LVDocView *v = doc->view;
+    lvRect m = v->getPageMargins();
+    int top = m.top + v->getPageHeaderHeight();
+    int height = v->GetHeight() - top - m.bottom;
+    lString8 out("[");
+    out << lString8::itoa(top) << "," << lString8::itoa(height < 0 ? 0 : height) << "]";
+    return dup_str(out);
+}
+
+char *cre_doc_page_ranges(CreDoc *doc, int first, int last) {
+    if (!doc || !doc->dom) return NULL;
+    LVRendPageList *pages = doc->view->getPageList();
+    lString8 out("[");
+    if (pages) {
+        if (first < 1) first = 1;
+        if (last > pages->length()) last = pages->length();
+        for (int i = first; i <= last; i++) {
+            const LVRendPageInfo *p = (*pages)[i - 1];
+            if (i > first) out << ",";
+            out << "[" << lString8::itoa(i) << "," << lString8::itoa(p->start) << "," << lString8::itoa((int)p->height)
+                << "]";
+        }
+    }
+    out << "]";
+    return dup_str(out);
+}
+
+int cre_doc_page_at_y(CreDoc *doc, int y) {
+    if (!doc || !doc->dom) return 0;
+    LVRendPageList *pages = doc->view->getPageList();
+    if (!pages || pages->length() == 0) return 0;
+    return pages->FindNearestPage(y, 0) + 1;
+}
+
+static void add_line(lString8 &out, bool &first, int top, int bottom) {
+    if (bottom <= top) return;
+    if (!first) out << ",";
+    first = false;
+    out << "[" << lString8::itoa(top) << "," << lString8::itoa(bottom) << "]";
+}
+
+// Moves to the next node in document order without entering the children
+// of the current node. Returns false at the end of the document.
+static bool next_outside(ldomXPointerEx &xp) {
+    while (!xp.nextSibling()) {
+        if (!xp.parent()) return false;
+    }
+    return true;
+}
+
+char *cre_doc_lines_in_range(CreDoc *doc, int y0, int y1) {
+    if (!doc || !doc->dom) return NULL;
+    lString8 out("[");
+    bool first = true;
+    ldomNode *root = doc->dom->getRootNode();
+    // The first block at or after y0. The walk then goes on in document
+    // order, which is the order on the strip (floats and table cells apart).
+    ldomNode *start = root ? root->elementFromPoint(lvPoint(0, y0), PT_DIR_SCAN_FORWARD) : NULL;
+    if (start) {
+        ldomXPointerEx xp(start, 0);
+        // A limit on the nodes visited: a damaged layout must not hang the call.
+        for (int guard = 0; guard < 20000; guard++) {
+            ldomNode *n = xp.getNode();
+            bool enter = false;
+            if (n && n->isElement()) {
+                lvdom_element_render_method rm = n->getRendMethod();
+                if (rm == erm_final) {
+                    lvRect rc;
+                    n->getAbsRect(rc, true);  // the box of the formatted text
+                    if (rc.top >= y1 && !n->isFloatingBox()) break;
+                    RenderRectAccessor fmt(n);
+                    if (fmt.getFlags() & RENDER_RECT_FLAG_INNER_FIELDS_SET) {
+                        LFormattedTextRef text;
+                        n->renderFinalBlock(text, &fmt, fmt.getInnerWidth());
+                        for (int i = 0; i < text->GetLineCount(); i++) {
+                            const formatted_line_t *line = text->GetLineInfo(i);
+                            int top = rc.top + (int)line->y;
+                            int bottom = top + line->height;
+                            if (bottom > y0 && top < y1) add_line(out, first, top, bottom);
+                        }
+                    } else if (rc.bottom > y0 && rc.top < y1) {
+                        // Legacy rendering mode: the block is one step.
+                        add_line(out, first, rc.top, rc.bottom);
+                    }
+                } else if (rm != erm_invisible && rm != erm_inline) {
+                    if (n->getChildCount() > 0) {
+                        enter = true;
+                    } else {
+                        lvRect rc;
+                        n->getAbsRect(rc);
+                        if (rc.top >= y1) break;
+                        if (rc.bottom > y0) add_line(out, first, rc.top, rc.bottom);
+                    }
+                }
+            }
+            if (enter && xp.firstChild()) continue;
+            if (!next_outside(xp)) break;
+        }
+    }
+    out << "]";
+    return dup_str(out);
+}
+
+char *cre_doc_xpointer_at_y(CreDoc *doc, int y) {
+    if (!doc || !doc->dom) return NULL;
+    // As LVDocView::getBookmark() does for the top of a page: the first
+    // logical text at the row. A row can resolve to earlier text (a float
+    // that overflows its block), so the next rows are tried too.
+    ldomXPointer fallback;
+    for (int row = y; row < y + 64; row++) {
+        ldomXPointer xp = doc->dom->createXPointer(lvPoint(0, row), PT_DIR_SCAN_FORWARD_LOGICAL_FIRST);
+        if (xp.isNull()) continue;
+        if (fallback.isNull()) fallback = xp;
+        if (xp.toPoint().y >= y) return dup_str(UnicodeToUtf8(xp.toString()));
+    }
+    if (fallback.isNull()) return NULL;
+    return dup_str(UnicodeToUtf8(fallback.toString()));
 }
 
 void cre_free(void *p) { free(p); }
