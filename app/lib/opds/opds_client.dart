@@ -70,17 +70,24 @@ class OpdsClient {
     }
   }
 
-  Future<String> _getText(String url, {String accept = '*/*'}) async {
-    final res = await _get(url, accept: accept);
+  Future<String> _readText(HttpClientResponse res) async {
     final bytes = await res.fold<List<int>>(<int>[], (a, b) => a..addAll(b)).timeout(timeout);
     return utf8.decode(bytes, allowMalformed: true);
   }
 
+  Future<String> _getText(String url, {String accept = '*/*'}) async => _readText(await _get(url, accept: accept));
+
   Future<OpdsFeed> fetchFeed(String url) async {
-    final xml = await _getText(url, accept: 'application/atom+xml;profile=opds-catalog, application/atom+xml, */*');
+    final res = await _get(url, accept: 'application/atom+xml;profile=opds-catalog, application/atom+xml, */*');
+    final xml = await _readText(res);
     try {
       return parseOpdsFeed(xml, url);
     } on OpdsParseException catch (e) {
+      // A link that only says it is a web page can lead to one (see the
+      // lenient link rule in parseOpdsFeed), and so can a typed address.
+      if (res.headers.contentType?.mimeType.toLowerCase() == 'text/html') {
+        throw OpdsException('The server sent a web page, not a catalog page.');
+      }
       throw OpdsException(e.message);
     }
   }

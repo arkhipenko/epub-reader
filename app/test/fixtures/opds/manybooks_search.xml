@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <title>Search Results</title>
+  <id>urn:manybooks:3c7845a1-ad5b-3bdb-dfb3-96d679ed</id>
+  <updated>2026-11-15T11:52:14-05:00</updated>
+  <link rel="search" title="Search Catalog" type="application/atom+xml" href="https://manybooks.net/opds/search?q={searchTerms}"/>
+  <link rel="self" type="application/atom+xml" href="https://manybooks.net/opds/search?q=twain"/>
+  <author>
+    <name>ManyBooks.net</name>
+    <uri>https://manybooks.net/</uri>
+  </author>
+  <entry>
+    <title type="xhtml">
+      <div xmlns="http://www.w3.org/1999/xhtml">The Boys' Life of Mark Twain</div>
+    </title>
+    <content type="xhtml">
+      <div xmlns="http://www.w3.org/1999/xhtml">This is the story of a boy, born in the humblest surroundings, reared almost without schooling, and amid benighted conditions such as to-day have no existence, yet who lived to achieve a world-wide fame; to attain honorary degrees from the greatest universities of America and Europe; to be sought by statesmen and kings; to be loved and honored by all men in all lands, and mourned by them when he died.</div>
+    </content>
+    <id>urn:manybooks:060d47e4-25ff-5a1a-f430-3fc43c5c</id>
+    <author>
+      <name>Albert Bigelow Paine</name>
+    </author>
+    <link type="text/html" href="https://manybooks.net/opds/title_detail/126037"/>
+  </entry>
+  <entry>
+    <title type="xhtml">
+      <div xmlns="http://www.w3.org/1999/xhtml">Mark Twain, A Biography</div>
+    </title>
+    <content type="xhtml">
+      <div xmlns="http://www.w3.org/1999/xhtml">Certain happenings as recorded in this work will be found to differ materially from the same incidents and episodes as set down in the writings of Mr.</div>
+    </content>
+    <id>urn:manybooks:3f182726-0cfc-8d48-5897-dc12ac7a</id>
+    <author>
+      <name>Albert Bigelow Paine</name>
+    </author>
+    <link type="text/html" href="https://manybooks.net/opds/title_detail/126044"/>
+  </entry>
+</feed>

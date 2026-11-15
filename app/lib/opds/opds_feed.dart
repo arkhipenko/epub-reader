@@ -19,6 +19,10 @@ class OpdsLink {
 
   bool get isAcquisition => rel.startsWith('http://opds-spec.org/acquisition');
   bool get isCatalog => type.contains('application/atom+xml') || type.contains('opds-catalog');
+
+  /// A link that says it leads to a web page (parameters such as charset
+  /// are ignored).
+  bool get isHtml => type.split(';').first.trim().toLowerCase() == 'text/html';
   bool get isThumbnail => rel == 'http://opds-spec.org/image/thumbnail' || rel == 'http://opds-spec.org/thumbnail';
   bool get isImage => rel == 'http://opds-spec.org/image' || rel == 'http://opds-spec.org/cover';
 }
@@ -218,6 +222,11 @@ OpdsFeed parseOpdsFeed(String xml, String url) {
           break;
         }
       }
+      // More lenient than KOReader: an entry with nothing else opens a link
+      // without rel that says it is a web page. ManyBooks labels the link of
+      // a search result this way, though it leads to a catalog page. A link
+      // with a rel (alternate: the web page of a book) is never taken.
+      nav ??= links.where((l) => l.rel.isEmpty && l.isHtml).firstOrNull?.href;
     }
     final content = _text(e, 'content');
     entries.add(
