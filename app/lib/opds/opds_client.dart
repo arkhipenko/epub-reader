@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../library/book_formats.dart';
 import 'opds_feed.dart';
 
 class OpdsException implements Exception {
@@ -147,6 +148,9 @@ class OpdsClient {
     name ??= '$fallback${acq.extension}';
     name = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_').trim();
     if (name.isEmpty) name = 'book${acq.extension}';
+    // The library knows a file by its extension. A name from the server
+    // can come without one, or with one that the reader does not know.
+    if (formatOfPath(name) == null) name = '$name${acq.extension}';
     return name;
   }
 
@@ -154,7 +158,9 @@ class OpdsClient {
   static Future<File> _unique(File f) async {
     if (!await f.exists()) return f;
     final path = f.path;
-    final dot = path.toLowerCase().endsWith('.fb2.zip') ? path.length - 8 : path.lastIndexOf('.');
+    // A two-part extension (".fb2.zip") stays whole.
+    final known = formatOfPath(path)?.extension;
+    final dot = known != null ? path.length - known.length : path.lastIndexOf('.');
     final stem = dot > path.lastIndexOf('/') ? path.substring(0, dot) : path;
     final ext = dot > path.lastIndexOf('/') ? path.substring(dot) : '';
     for (var i = 2; ; i++) {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app_services.dart';
 import '../data/database.dart';
+import '../library/book_formats.dart';
 import '../library/folders_screen.dart';
 import '../reader/reader_screen.dart';
 import 'opds_client.dart';
@@ -419,7 +420,11 @@ class _BookSheetState extends State<_BookSheet> {
   Future<void> _download(OpdsAcquisition acq) async {
     final services = ServicesScope.of(context);
     final shared = await hasStorageAccess();
-    final folder = (shared ? services.library.value.effectiveDownloadFolder : null) ?? services.booksDir;
+    final library = services.library.value;
+    // A text or office document goes to the app's own folder while the
+    // library folders show book formats only: there it always shows.
+    final inFolders = shared && (acq.format?.group == FormatGroup.book || library.scanDocuments);
+    final folder = (inFolders ? library.effectiveDownloadFolder : null) ?? services.booksDir;
     setState(() {
       _progress = 0;
       _status = 'Downloading...';
@@ -435,12 +440,12 @@ class _BookSheetState extends State<_BookSheet> {
           if (mounted) setState(() => _progress = t == null || t == 0 ? null : r / t);
         },
       );
-      await services.scanner.addFile(path);
+      final readable = await services.scanner.addFile(path);
       if (!mounted) return;
       setState(() {
         _progress = 1;
-        _downloaded = path;
-        _status = 'Saved to $path';
+        _downloaded = readable ? path : null;
+        _status = readable ? 'Saved to $path' : 'Saved to $path\n$kCannotOpenMessage';
       });
     } on OpdsException catch (e) {
       if (mounted) {
@@ -505,14 +510,20 @@ class _BookSheetState extends State<_BookSheet> {
                 for (final a in e.acquisitions)
                   FilledButton.tonal(
                     onPressed: a.isSupported && !busy ? () => _download(a) : null,
-                    child: Text('Download ${a.label}'),
+                    // Two files of one format (Project Gutenberg has two Kindle
+                    // files): the name from the catalog tells them apart.
+                    child: Text(
+                      a.title.isNotEmpty && e.acquisitions.where((b) => b.label == a.label).length > 1
+                          ? 'Download ${a.label}: ${a.title}'
+                          : 'Download ${a.label}',
+                    ),
                   ),
               ],
             ),
             if (e.acquisitions.every((a) => !a.isSupported))
               const Padding(
                 padding: EdgeInsets.only(top: 8),
-                child: Text('This app reads EPUB and FB2. The catalog offers other formats only.'),
+                child: Text('The catalog offers this book only in formats that the reader does not open.'),
               ),
             if (_status != null) ...[
               const SizedBox(height: 12),

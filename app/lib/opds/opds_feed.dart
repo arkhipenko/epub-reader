@@ -7,6 +7,8 @@
 //   image_rel        http://opds-spec.org/image (and .../cover)
 import 'package:xml/xml.dart';
 
+import '../library/book_formats.dart';
+
 class OpdsLink {
   const OpdsLink({required this.href, this.rel = '', this.type = '', this.title = ''});
 
@@ -29,37 +31,27 @@ class OpdsAcquisition {
   final String type;
   final String title;
 
+  /// The format when the reader opens it, else null.
+  BookFormat? get format => formatOfMimeType(type);
+
   /// Short label for the format, for example EPUB or FB2.
   String get label {
+    final f = format;
+    if (f != null) return f.label;
+    // Formats that the reader does not open.
     final t = type.toLowerCase();
-    if (t.contains('epub')) return 'EPUB';
-    if (t.contains('fb2') || t.contains('fictionbook')) return t.contains('zip') ? 'FB2 (zip)' : 'FB2';
     if (t.contains('pdf')) return 'PDF';
-    if (t.contains('mobi')) return 'MOBI';
-    if (t.contains('azw')) return 'AZW3';
+    if (t.contains('mobi8') || t.contains('azw')) return 'AZW3';
     if (t.contains('djvu')) return 'DJVU';
     if (t.contains('cbz') || t.contains('comic')) return 'CBZ';
-    if (t.contains('text/plain')) return 'TXT';
     final slash = t.lastIndexOf('/');
     return slash >= 0 ? t.substring(slash + 1).toUpperCase() : t.toUpperCase();
   }
 
-  /// This app reads EPUB and FB2.
-  bool get isSupported => label == 'EPUB' || label.startsWith('FB2');
+  bool get isSupported => format != null;
 
   /// File extension for the download.
-  String get extension {
-    switch (label) {
-      case 'EPUB':
-        return '.epub';
-      case 'FB2':
-        return '.fb2';
-      case 'FB2 (zip)':
-        return '.fb2.zip';
-      default:
-        return '';
-    }
-  }
+  String get extension => format?.extension ?? '';
 }
 
 class OpdsEntry {
@@ -145,13 +137,51 @@ List<OpdsLink> _links(XmlElement e, Uri base) => [
       ),
 ];
 
+final RegExp _descriptionOpen = RegExp(r'<((?:[A-Za-z_][\w.-]*:)?(?:content|summary))\b([^<>]*)>');
+final RegExp _cdata = RegExp(r'<!\[CDATA\[(.*?)\]\]>', dotAll: true);
+
+String _escapeMarkup(String s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+/// Makes the body of each content and summary element plain text for the
+/// XML parser: the markup in it is escaped. A description holds HTML or
+/// XHTML from the catalog data, and an error in it (an unclosed tag, a bad
+/// attribute) must not stop the whole page. KOReader does the same
+/// (opds.koplugin/opdsparser.lua). After the parse the element text is the
+/// body as the catalog wrote it: real tags as tags, escaped markup still
+/// escaped. [stripHtml] makes plain text from it.
+String descriptionsAsText(String xml) {
+  final out = StringBuffer();
+  var pos = 0;
+  for (final open in _descriptionOpen.allMatches(xml)) {
+    if (open.start < pos) continue; // inside a body that is done
+    // An empty element has no body. (A search for its end tag would run
+    // into the next entry.)
+    if (open.group(2)!.trimRight().endsWith('/')) continue;
+    final close = RegExp('</${RegExp.escape(open.group(1)!)}\\s*>').firstMatch(xml.substring(open.end));
+    if (close == null) break;
+    final bodyEnd = open.end + close.start;
+    out.write(xml.substring(pos, open.end));
+    var from = open.end;
+    for (final c in _cdata.allMatches(xml.substring(open.end, bodyEnd))) {
+      out.write(_escapeMarkup(xml.substring(from, open.end + c.start)));
+      // A CDATA section is text as it is: the same as escaped markup.
+      out.write(_escapeMarkup(_escapeMarkup(c.group(1)!)));
+      from = open.end + c.end;
+    }
+    out.write(_escapeMarkup(xml.substring(from, bodyEnd)));
+    pos = bodyEnd;
+  }
+  out.write(xml.substring(pos));
+  return out.toString();
+}
+
 /// Parses an Atom OPDS feed. [url] is the feed address, for relative links.
 OpdsFeed parseOpdsFeed(String xml, String url) {
   final XmlDocument doc;
   try {
-    doc = XmlDocument.parse(xml);
+    doc = XmlDocument.parse(descriptionsAsText(xml));
   } on XmlException catch (e) {
-    throw OpdsParseException('This is not an OPDS catalog (${e.message}).');
+    throw OpdsParseException('The catalog sent a page with errors.\n(${e.message})');
   }
   final feed = doc.rootElement;
   if (feed.name.local != 'feed') {
@@ -234,16 +264,31 @@ String? parseOpenSearchTemplate(String xml, String url) {
   return any;
 }
 
-/// Plain text from an HTML summary (calibre-web sends HTML).
-String stripHtml(String s) => s
+final RegExp _scriptOrStyle = RegExp(r'<(script|style)\b[^>]*>.*?</\1\s*>', caseSensitive: false, dotAll: true);
+final RegExp _comment = RegExp(r'<!--.*?-->', dotAll: true);
+final RegExp _tag = RegExp(r'</?[A-Za-z!][^>]*>');
+
+String _stripOnce(String s) => s
+    // A script or a style sheet is not text: it goes with its body.
+    .replaceAll(_scriptOrStyle, '')
+    .replaceAll(_comment, '')
     .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
     .replaceAll(RegExp(r'</p>', caseSensitive: false), '\n\n')
-    .replaceAll(RegExp(r'<[^>]+>'), '')
+    .replaceAll(_tag, '')
     .replaceAll('&nbsp;', ' ')
-    .replaceAll('&amp;', '&')
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')
     .replaceAll('&quot;', '"')
     .replaceAll('&#39;', "'")
-    .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-    .trim();
+    .replaceAll('&amp;', '&');
+
+/// Plain text from a description as the catalog wrote it (see
+/// [descriptionsAsText]). The first pass removes the real tags and decodes
+/// the text once. Escaped markup (Atom type "html", or markup that a
+/// catalog escaped a second time) is then tags, and a second pass removes
+/// it: the text of a description never shows tags or script source.
+String stripHtml(String s) {
+  var out = _stripOnce(s);
+  if (_tag.hasMatch(out)) out = _stripOnce(out);
+  return out.replaceAll(RegExp(r'[ \t]+\n'), '\n').replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+}

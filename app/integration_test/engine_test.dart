@@ -8,12 +8,18 @@
 //       --dart-define=FIXTURES=$PWD/test/fixtures
 //   Android: first adb push the files to /sdcard/Download, then
 //       --dart-define=FIXTURES=/sdcard/Download
+//
+// The format check needs the files of test/fixtures/formats in the same
+// folder. A format without its sample file is skipped (sample.chm is not
+// in the repository).
 import 'dart:io';
 
 import 'package:epub_reader/dev/koreader_vectors.dart';
 import 'package:epub_reader/engine/cre_engine.dart';
 import 'package:epub_reader/engine/engine_assets.dart';
+import 'package:epub_reader/library/book_formats.dart';
 import 'package:epub_reader/reader/advanced_settings.dart';
+import 'package:epub_reader/reader/line_shift.dart';
 import 'package:epub_reader/reader/style_tweaks.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -192,6 +198,182 @@ void main() {
       expect(contrast.split(' ').first, before.split(' ').first, reason: 'contrast changed the page count');
       await engine.setGamma(kDefaultFontGamma);
       expect(await signature(engine), before);
+      await engine.closeBook();
+    });
+  });
+
+  // One sample per file format of the format table (test/fixtures/formats).
+  // The result lines start with "FORMAT" in the test output.
+  group('file formats', () {
+    final extensions = [
+      for (final f in kBookFormats)
+        if (f.extension != '.epub' && f.extension != '.fb2') f.extension,
+    ];
+    for (final ext in extensions) {
+      final name = 'sample$ext';
+      test('opens $name', () async {
+        final path = '$fixtures/$name';
+        if (!File(path).existsSync()) {
+          // ignore: avoid_print
+          print('FORMAT $ext: no sample file, not checked');
+          markTestSkipped('no $name in $fixtures');
+          return;
+        }
+        // Library data, as the scan reads it.
+        final cover = '${Directory.systemTemp.path}/cover$ext';
+        final info = await engine.bookInfo(path, cover);
+        expect(info, isNotNull, reason: 'the engine cannot read the library data');
+        // The reader: layout, a page image, the contents list.
+        final r = await engine.open(path, width: width, height: height, dpi: 320, layout: layout);
+        final pages = r.position.pageCount;
+        expect(pages, greaterThan(1), reason: 'the sample has text for more than one page');
+        final first = await engine.drawPage(1);
+        expect(first!.any((b) => b != 0xFF), isTrue, reason: 'page 1 is empty');
+        // Position save and restore: the place of page 2 opens again on page 2.
+        final there = await engine.gotoPage(2);
+        expect(there.xpointer, isNotNull);
+        final text = await engine.textAt(there.xpointer!, maxChars: 40);
+        await engine.closeBook();
+        final again = await engine.open(
+          path,
+          width: width,
+          height: height,
+          dpi: 320,
+          layout: layout,
+          xpointer: there.xpointer,
+        );
+        expect(again.position.page, 2, reason: 'the saved position does not open on its page');
+        // ignore: avoid_print
+        print(
+          'FORMAT $ext: opens, engine format "${r.info.format}", $pages pages, ${r.toc.length} contents entries, '
+          'title "${info!.title}", author "${info.authors}", cover ${info.hasCover}, '
+          'text at page 2 "${(text ?? '').replaceAll('\n', ' ').trim()}"',
+        );
+        await engine.closeBook();
+      });
+    }
+  });
+
+  // Line shift: the engine gives the page slices and the text lines of the
+  // book laid out as one strip (sample.fb2).
+  group('line shift (sample.fb2)', () {
+    /// Rows of a page image that have a pixel that is not white.
+    Set<int> inkRows(List<int> rgba) {
+      final rows = <int>{};
+      for (var y = 0; y < height; y++) {
+        final from = y * width * 4;
+        for (var i = from; i < from + width * 4; i++) {
+          if (rgba[i] != 0xFF) {
+            rows.add(y);
+            break;
+          }
+        }
+      }
+      return rows;
+    }
+
+    test('pages are slices of the strip and lines match the page image', () async {
+      await openBook(engine, 'sample.fb2');
+      final count = (await engine.position()).pageCount;
+      final info = await engine.shiftInfo(page: 2);
+      final g = ShiftGeometry.fromRows(
+        pages: info.pages,
+        lines: info.lines,
+        minY: info.minY,
+        maxY: info.maxY,
+        areaTop: info.areaTop,
+        areaHeight: info.areaHeight,
+      );
+      expect(g.areaTop, layout.marginTop);
+      expect(g.areaHeight, height - layout.marginTop - layout.marginBottom);
+      final page2 = g.page(2)!;
+      expect(info.top, page2.start);
+      expect(g.minY, g.page(1)!.start);
+      expect(g.lines, isNotEmpty);
+      // Pages follow each other on the strip and do not overlap.
+      for (var i = 1; i < g.pages.length; i++) {
+        expect(g.pages[i].page, g.pages[i - 1].page + 1);
+        expect(g.pages[i].start, greaterThanOrEqualTo(g.pages[i - 1].end));
+        expect(g.pages[i].height, lessThanOrEqualTo(g.areaHeight));
+      }
+      final gaps = [for (var i = 1; i < g.pages.length; i++) g.pages[i].start - g.pages[i - 1].end];
+      // ignore: avoid_print
+      print('SHIFT pages ${[for (final p in g.pages) '${p.page}:${p.start}+${p.height}']} gaps $gaps of $count pages');
+
+      // The lines of page 2, and the rows of its image that hold them.
+      final ink = inkRows((await engine.drawPage(2))!);
+      final lines = [
+        for (final l in g.lines)
+          if (l.top >= page2.start && l.bottom <= page2.end) l,
+      ];
+      expect(lines.length, greaterThan(5));
+      var withInk = 0;
+      for (final l in lines) {
+        final from = g.areaTop + l.top - page2.start;
+        final to = g.areaTop + l.bottom - page2.start;
+        if (ink.any((row) => row >= from && row < to)) withInk++;
+      }
+      // ignore: avoid_print
+      print(
+        'SHIFT page 2: ${lines.length} lines, $withInk with ink, first ${lines.first.top}, last ${lines.last.bottom}',
+      );
+      expect(
+        withInk,
+        greaterThanOrEqualTo(lines.length * 9 ~/ 10),
+        reason: 'the lines are not where the image has text',
+      );
+      // No text above the first line or below the slice of the page.
+      expect(ink.where((row) => row < g.areaTop - 4), isEmpty);
+      expect(ink.where((row) => row > g.areaTop + page2.height + 4), isEmpty);
+      await engine.closeBook();
+    });
+
+    test('a shift sets the reading position to the first line of the view', () async {
+      await openBook(engine, 'sample.fb2');
+      final info = await engine.shiftInfo(page: 2);
+      final g = ShiftGeometry.fromRows(
+        pages: info.pages,
+        lines: info.lines,
+        minY: info.minY,
+        maxY: info.maxY,
+        areaTop: info.areaTop,
+        areaHeight: info.areaHeight,
+      );
+      final page2 = g.page(2)!;
+      final inside = [
+        for (final l in g.lines)
+          if (l.top > page2.start && l.bottom <= page2.end) l,
+      ];
+      // Three lines down from the top of page 2.
+      final row = g.settle(inside[2].top + 3.0, page2.start);
+      expect(row, inside[2].top);
+      final p = await engine.shiftTo(row);
+      expect(p, isNotNull);
+      expect(p!.page, 2);
+      final top = await engine.gotoPage(2);
+      expect(p.xpointer, isNot(top.xpointer), reason: 'the position is still the top of the page');
+      expect(await engine.compare(top.xpointer!, p.xpointer!), lessThan(0));
+      // The position survives a close and opens on the fixed page.
+      await engine.closeBook();
+      final again = await engine.open(
+        '$fixtures/sample.fb2',
+        width: width,
+        height: height,
+        dpi: 320,
+        layout: layout,
+        xpointer: p.xpointer,
+      );
+      expect(again.position.page, 2);
+      expect(again.position.xpointer, p.xpointer);
+      // The geometry around a row is the same rows.
+      final around = await engine.shiftInfo(y: row);
+      expect(around.top, row);
+      expect(around.lines.any((l) => l[0] == row), isTrue);
+      // The page turn rule: forward shows the page with the first line below.
+      final end = g.visibleEnd(row);
+      expect(end, greaterThan(page2.end - 1));
+      expect(g.pageAt(shiftTurnRow(forward: true, top: row, end: end)), 3);
+      expect(g.pageAt(shiftTurnRow(forward: false, top: row, end: end)), 2);
       await engine.closeBook();
     });
   });

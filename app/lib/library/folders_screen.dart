@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../app_services.dart';
+import 'book_formats.dart';
 import 'library_settings.dart';
 
 /// Android 11 (API 30) brought "All files access". Before it, the storage
@@ -70,7 +71,7 @@ class _FoldersScreenState extends State<FoldersScreen> with WidgetsBindingObserv
       builder: (context, s, _) {
         Future<void> save(LibrarySettings n) async {
           await services.updateLibrary(n);
-          services.scanner.scan(n.folders).ignore();
+          services.scanner.scan(n.folders, documents: n.scanDocuments).ignore();
         }
 
         return Scaffold(
@@ -107,7 +108,7 @@ class _FoldersScreenState extends State<FoldersScreen> with WidgetsBindingObserv
                 ),
               const ListTile(
                 title: Text('Scanned folders'),
-                subtitle: Text('EPUB and FB2 files in these folders and their subfolders show in the library.'),
+                subtitle: Text('Book files in these folders and their subfolders show in the library.'),
               ),
               for (final f in s.folders)
                 ListTile(
@@ -121,6 +122,17 @@ class _FoldersScreenState extends State<FoldersScreen> with WidgetsBindingObserv
                   ),
                 ),
               if (s.folders.isEmpty) const ListTile(title: Text('No folders.')),
+              SwitchListTile(
+                secondary: const Icon(Icons.description_outlined),
+                title: const Text('Also show text and office documents'),
+                subtitle: Text(
+                  'Off: the folders show book formats only (${formatLabels(FormatGroup.book)}). '
+                  'On: also ${formatLabels(FormatGroup.document)}. '
+                  'A document that you open or download yourself always shows.',
+                ),
+                value: s.scanDocuments,
+                onChanged: (v) => save(s.copyWith(scanDocuments: v)),
+              ),
               const Divider(),
               ListTile(
                 leading: const Icon(Icons.download),

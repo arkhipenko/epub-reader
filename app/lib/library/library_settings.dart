@@ -23,18 +23,11 @@ enum LibrarySort {
   final String label;
 }
 
-/// Book file extensions that the library scans (EPUB and FB2, also zipped FB2).
-const List<String> kBookExtensions = ['.epub', '.fb2', '.fb2.zip', '.fbz'];
-
-bool isBookFile(String path) {
-  final p = path.toLowerCase();
-  return kBookExtensions.any(p.endsWith);
-}
-
 class LibrarySettings {
   const LibrarySettings({
     this.folders = const [],
     this.downloadFolder,
+    this.scanDocuments = false,
     this.view = LibraryView.card,
     this.sort = LibrarySort.recent,
   });
@@ -47,6 +40,11 @@ class LibrarySettings {
   /// Folder for OPDS downloads. Null: the first library folder, or the
   /// app's own folder when there is none.
   final String? downloadFolder;
+
+  /// The scan of the folders also takes text and office documents (TXT,
+  /// HTML, RTF, DOC and so on). Off: it takes book formats only, because a
+  /// folder such as Download holds many documents that are not books.
+  final bool scanDocuments;
   final LibraryView view;
   final LibrarySort sort;
 
@@ -55,17 +53,24 @@ class LibrarySettings {
   LibrarySettings copyWith({
     List<String>? folders,
     String? Function()? downloadFolder,
+    bool? scanDocuments,
     LibraryView? view,
     LibrarySort? sort,
   }) => LibrarySettings(
     folders: folders ?? this.folders,
     downloadFolder: downloadFolder != null ? downloadFolder() : this.downloadFolder,
+    scanDocuments: scanDocuments ?? this.scanDocuments,
     view: view ?? this.view,
     sort: sort ?? this.sort,
   );
 
-  String encode() =>
-      jsonEncode({'folders': folders, 'downloadFolder': downloadFolder, 'view': view.name, 'sort': sort.name});
+  String encode() => jsonEncode({
+    'folders': folders,
+    'downloadFolder': downloadFolder,
+    'scanDocuments': scanDocuments,
+    'view': view.name,
+    'sort': sort.name,
+  });
 
   static LibrarySettings decode(String? text) {
     if (text == null) return const LibrarySettings();
@@ -74,6 +79,7 @@ class LibrarySettings {
       return LibrarySettings(
         folders: (j['folders'] as List?)?.whereType<String>().toList() ?? const [],
         downloadFolder: j['downloadFolder'] as String?,
+        scanDocuments: j['scanDocuments'] == true,
         view: LibraryView.values.firstWhere((v) => v.name == j['view'], orElse: () => LibraryView.card),
         sort: LibrarySort.values.firstWhere((s) => s.name == j['sort'], orElse: () => LibrarySort.recent),
       );

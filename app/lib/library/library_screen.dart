@@ -14,6 +14,7 @@ import '../reader/advanced_screens.dart';
 import '../reader/reader_screen.dart';
 import '../sync/kosync_settings_screen.dart';
 import 'annotations_screen.dart';
+import 'book_formats.dart';
 import 'folders_screen.dart';
 import 'library_filter.dart';
 import 'library_scanner.dart';
@@ -83,7 +84,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
       return;
     }
     // Without access only the app's own folder is scanned.
-    scanner.scan(access ? _services.library.value.folders : const []).ignore();
+    final library = _services.library.value;
+    scanner.scan(access ? library.folders : const [], documents: library.scanDocuments).ignore();
   }
 
   Future<void> _open(String path) async {
@@ -101,13 +103,25 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
     final files = await FilePicker.pickFiles(type: FileType.any);
     if (files.isEmpty) return;
     final picked = files.first;
+    if (formatOfPath(picked.name) == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('The reader does not open this type of file.')));
+      }
+      return;
+    }
     final dest = File('${_services.booksDir}/${picked.name}');
     // Android gives a content URI without a path: the book is copied into app
     // storage (byte-identical, so the partial MD5 is the same).
     final sink = dest.openWrite();
     await sink.addStream(picked.xFile.openRead());
     await sink.close();
-    await _services.scanner.addFile(dest.path);
+    if (!await _services.scanner.addFile(dest.path)) {
+      // The engine cannot read the file: the copy is of no use.
+      await dest.delete().catchError((_) => dest);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text(kCannotOpenMessage)));
+      return;
+    }
     await _open(dest.path);
   }
 
@@ -177,7 +191,10 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
                     ),
                   Expanded(
                     child: RefreshIndicator(
-                      onRefresh: () => services.scanner.scan(_access == true ? settings.folders : const []),
+                      onRefresh: () => services.scanner.scan(
+                        _access == true ? settings.folders : const [],
+                        documents: settings.scanDocuments,
+                      ),
                       child: books.isEmpty ? _empty(context, all.isEmpty) : _books(context, books, settings.view),
                     ),
                   ),
@@ -258,7 +275,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WidgetsBindingObserv
     final text = switch (_section.kind) {
       _ when _search.text.isNotEmpty => 'No books match the search.',
       SectionKind.books when libraryEmpty =>
-        'No books yet.\n\nAdd a folder with EPUB or FB2 files in Library folders, download books from an OPDS '
+        'No books yet.\n\nAdd a folder with book files in Library folders, download books from an OPDS '
             'catalog, or open a file.',
       SectionKind.recent => 'Books you read show here.',
       SectionKind.favorites => 'No favorites. Long press a book to add it.',

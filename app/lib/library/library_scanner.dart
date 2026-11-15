@@ -5,6 +5,10 @@
 // 2. The engine reads metadata and the cover of each new book, one at a
 //    time, so that a book open for reading waits for at most one file.
 // 3. Books whose file is gone are marked missing (their data is kept).
+//
+// Book formats are always taken. Text and office documents are taken in the
+// app's own folder (files that the owner opened or downloaded), and in the
+// library folders only when the owner turned that on.
 import 'dart:io';
 import 'dart:isolate';
 
@@ -14,7 +18,7 @@ import 'package:flutter/foundation.dart';
 import '../data/database.dart';
 import '../engine/cre_engine.dart';
 import '../sync/partial_md5.dart';
-import 'library_settings.dart';
+import 'book_formats.dart';
 
 class ScanProgress {
   const ScanProgress({this.running = false, this.done = 0, this.total = 0, this.added = 0});
@@ -41,16 +45,22 @@ final RegExp _separators = RegExp(r'[/\\]');
 
 /// Walks [roots] and returns the book files. [known] maps a path to
 /// [size, modifiedMs] from the last scan; matching files are not hashed.
-/// Runs in a background isolate.
-List<FoundFile> walkLibrary(List<String> roots, Map<String, List<int>> known) {
+/// Text and office documents are taken under [ownFolder], and everywhere
+/// when [documents] is set. Runs in a background isolate.
+List<FoundFile> walkLibrary(
+  List<String> roots,
+  Map<String, List<int>> known, {
+  bool documents = false,
+  String? ownFolder,
+}) {
   final found = <FoundFile>[];
   final seen = <String>{};
-  final stack = <Directory>[
+  final stack = <(Directory, bool)>[
     for (final r in roots)
-      if (Directory(r).existsSync()) Directory(r),
+      if (Directory(r).existsSync()) (Directory(r), documents || r == ownFolder),
   ];
   while (stack.isNotEmpty) {
-    final dir = stack.removeLast();
+    final (dir, withDocuments) = stack.removeLast();
     List<FileSystemEntity> entries;
     try {
       entries = dir.listSync(followLinks: false);
@@ -64,8 +74,8 @@ List<FoundFile> walkLibrary(List<String> roots, Map<String, List<int>> known) {
         // KOReader sidecar folders and Android app data hold no books.
         final parent = dir.path.split(_separators).last;
         if (name.endsWith('.sdr') || (parent == 'Android' && (name == 'data' || name == 'obb'))) continue;
-        stack.add(e);
-      } else if (e is File && isBookFile(e.path) && seen.add(e.path)) {
+        stack.add((e, withDocuments));
+      } else if (e is File && isBookFile(e.path, documents: withDocuments) && seen.add(e.path)) {
         try {
           final stat = e.statSync();
           final mtime = stat.modified.millisecondsSinceEpoch;
@@ -97,14 +107,20 @@ class LibraryScanner {
   /// End of the last completed scan (null: none in this run of the app).
   DateTime? lastScan;
 
-  /// Scans [folders] (and the app's own book folder). A second call while a
+  /// Scans [folders] (and the app's own book folder). [documents] also
+  /// takes text and office documents in [folders]. A second call while a
   /// scan runs returns the running scan.
-  Future<void> scan(List<String> folders) => _running ??= _scan(folders).whenComplete(() {
-    _running = null;
-    lastScan = DateTime.now();
-  });
+  Future<void> scan(List<String> folders, {bool documents = false}) =>
+      _running ??= _scan(folders, documents).whenComplete(() {
+        _running = null;
+        lastScan = DateTime.now();
+      });
 
-  Future<void> _scan(List<String> folders) async {
+  /// True when the scan takes the file at [path].
+  bool _takes(String path, bool documents) =>
+      isBookFile(path, documents: documents || path.startsWith('$internalBooksDir/'));
+
+  Future<void> _scan(List<String> folders, bool documents) async {
     progress.value = const ScanProgress(running: true);
     var added = 0;
     try {
@@ -116,7 +132,8 @@ class LibraryScanner {
             b.path: [b.fileSize!, b.fileModified!.millisecondsSinceEpoch],
       };
       final roots = [...folders, internalBooksDir];
-      final found = await Isolate.run(() => walkLibrary(roots, known));
+      final own = internalBooksDir;
+      final found = await Isolate.run(() => walkLibrary(roots, known, documents: documents, ownFolder: own));
       await Directory(coversDir).create(recursive: true);
 
       final seenIds = <String>{};
@@ -139,9 +156,14 @@ class LibraryScanner {
 
       // Books not found in this scan: missing, unless the file is still
       // there (for example a book opened from outside the library folders).
+      // A document in a folder that the scan does not take (any more) is
+      // hidden too, unless the owner has read it.
       final gone = [
         for (final b in books)
-          if (!seenIds.contains(b.id) && !b.missing && !File(b.path).existsSync()) b.id,
+          if (!seenIds.contains(b.id) &&
+              !b.missing &&
+              (!File(b.path).existsSync() || (b.lastXPointer == null && !_takes(b.path, documents))))
+            b.id,
       ];
       if (gone.isNotEmpty) await db.setMissing(gone, true);
       final back = [
@@ -194,11 +216,13 @@ class LibraryScanner {
     return existing == null;
   }
 
-  /// Indexes one file now (for example after a download).
-  Future<void> addFile(String path) async {
+  /// Indexes one file now (for example after a download). Returns false
+  /// when the engine cannot read the file: it is then not in the library.
+  Future<bool> addFile(String path) async {
     final stat = await File(path).stat();
     final md5 = await partialMd5OfFile(path);
     await Directory(coversDir).create(recursive: true);
     await _indexFile(FoundFile(path, stat.size, stat.modified.millisecondsSinceEpoch, md5));
+    return await db.bookById(md5) != null;
   }
 }

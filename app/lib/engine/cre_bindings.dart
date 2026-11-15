@@ -10,7 +10,7 @@ import 'package:ffi/ffi.dart';
 final class CreDoc extends Opaque {}
 
 /// The C interface version this file is written for (CRE_FFI_VERSION).
-const int kCreFfiVersion = 5;
+const int kCreFfiVersion = 6;
 
 /// cre_doc_draw_page() flag: invert images (for the dark theme, which
 /// inverts the whole page afterwards).
@@ -174,6 +174,27 @@ class CreBindings {
             Int32 Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>),
             int Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>)
           >('cre_doc_compare_xpointers'),
+      _docTextArea = lib
+          .lookupFunction<Pointer<Utf8> Function(Pointer<CreDoc>), Pointer<Utf8> Function(Pointer<CreDoc>)>(
+            'cre_doc_text_area',
+          ),
+      _docPageRanges = lib
+          .lookupFunction<
+            Pointer<Utf8> Function(Pointer<CreDoc>, Int32, Int32),
+            Pointer<Utf8> Function(Pointer<CreDoc>, int, int)
+          >('cre_doc_page_ranges'),
+      docPageAtY = lib.lookupFunction<Int32 Function(Pointer<CreDoc>, Int32), int Function(Pointer<CreDoc>, int)>(
+        'cre_doc_page_at_y',
+      ),
+      _docLinesInRange = lib
+          .lookupFunction<
+            Pointer<Utf8> Function(Pointer<CreDoc>, Int32, Int32),
+            Pointer<Utf8> Function(Pointer<CreDoc>, int, int)
+          >('cre_doc_lines_in_range'),
+      _docXPointerAtY = lib
+          .lookupFunction<Pointer<Utf8> Function(Pointer<CreDoc>, Int32), Pointer<Utf8> Function(Pointer<CreDoc>, int)>(
+            'cre_doc_xpointer_at_y',
+          ),
       _free = lib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('cre_free');
 
   /// Opens the native library for the current platform.
@@ -251,6 +272,27 @@ class CreBindings {
   int docCompare(Pointer<CreDoc> d, String a, String b) =>
       using((m) => _docCompare(d, a.toNativeUtf8(allocator: m), b.toNativeUtf8(allocator: m)));
   final void Function(Pointer<Void>) _free;
+
+  // ---- Line shift. A document y is a pixel row of the laid out book. ----
+  final Pointer<Utf8> Function(Pointer<CreDoc>) _docTextArea;
+  final Pointer<Utf8> Function(Pointer<CreDoc>, int, int) _docPageRanges;
+
+  /// Page (1-based) that holds document row y.
+  final int Function(Pointer<CreDoc>, int) docPageAtY;
+  final Pointer<Utf8> Function(Pointer<CreDoc>, int, int) _docLinesInRange;
+  final Pointer<Utf8> Function(Pointer<CreDoc>, int) _docXPointerAtY;
+
+  /// JSON [top, height]: the rows of a page image that can hold text.
+  String? docTextArea(Pointer<CreDoc> d) => _take(_docTextArea(d));
+
+  /// JSON [[page, start, height], ...] for pages [first] to [last].
+  String? docPageRanges(Pointer<CreDoc> d, int first, int last) => _take(_docPageRanges(d, first, last));
+
+  /// JSON [[top, bottom], ...] of the text lines in document rows y0 to y1.
+  String? docLinesInRange(Pointer<CreDoc> d, int y0, int y1) => _take(_docLinesInRange(d, y0, y1));
+
+  /// XPointer of the first text at or after document row y.
+  String? docXPointerAtY(Pointer<CreDoc> d, int y) => _take(_docXPointerAtY(d, y));
 
   /// Metadata JSON for the library, and the cover written to [coverOut].
   String? bookInfo(String path, String coverOut) =>

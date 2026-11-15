@@ -10,6 +10,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../library/book_formats.dart';
 import 'cre_bindings.dart';
 import 'text_language.dart';
 
@@ -230,6 +231,37 @@ class BookFileInfo {
   final bool hasCover;
 }
 
+/// Page slices and text lines around a place in the book, for a line
+/// shift. A document y is a pixel row of the book laid out as one strip.
+class ShiftInfo {
+  const ShiftInfo({
+    required this.top,
+    required this.areaTop,
+    required this.areaHeight,
+    required this.pages,
+    required this.lines,
+    required this.minY,
+    required this.maxY,
+  });
+
+  /// Document row of the place that was asked for.
+  final int top;
+
+  /// Rows of a page image that can hold text: first row and row count.
+  final int areaTop;
+  final int areaHeight;
+
+  /// [page, start, height] of the pages around the place.
+  final List<List<int>> pages;
+
+  /// [top, bottom] of the text lines around the place.
+  final List<List<int>> lines;
+
+  /// Start of the first and of the last page.
+  final int minY;
+  final int maxY;
+}
+
 class EngineException implements Exception {
   EngineException(this.message);
 
@@ -320,7 +352,7 @@ class CreEngine {
               'width': width,
               'height': height,
               'dpi': dpi,
-              'isFb2': isFb2Path(path),
+              'fb2Styles': formatOfPath(path)?.fb2Styles ?? false,
               'layout': layout.toMap(),
               'xpointer': xpointer,
               'langHint': languageHint,
@@ -455,6 +487,30 @@ class CreEngine {
     return r == null ? null : EnginePosition.fromMap(r as Map);
   }
 
+  /// Geometry for a line shift around the start of [page], or around
+  /// document row [y].
+  Future<ShiftInfo> shiftInfo({int? page, int? y}) async {
+    final r = (await _call('shiftInfo', {'page': page, 'y': y}))! as Map;
+    List<List<int>> rows(Object? v) => [for (final e in v! as List) (e as List).cast<int>()];
+    return ShiftInfo(
+      top: r['top'] as int,
+      areaTop: r['areaTop'] as int,
+      areaHeight: r['areaHeight'] as int,
+      pages: rows(r['pages']),
+      lines: rows(r['lines']),
+      minY: r['min'] as int,
+      maxY: r['max'] as int,
+    );
+  }
+
+  /// Sets the reading position to the first text at document row [y]. The
+  /// engine goes to the page that holds it. Returns null when there is no
+  /// text there.
+  Future<EnginePosition?> shiftTo(int y) async {
+    final r = await _call('shiftTo', {'y': y});
+    return r == null ? null : EnginePosition.fromMap(r as Map);
+  }
+
   /// Page of each XPointer in the current layout (0: not in the document).
   Future<Map<String, int>> pagesOf(Iterable<String> xpointers) async {
     final list = xpointers.toSet().toList();
@@ -488,11 +544,6 @@ class CreEngine {
   void dispose() {
     _fromWorker.close();
     _isolate.kill(priority: Isolate.immediate);
-  }
-
-  static bool isFb2Path(String path) {
-    final p = path.toLowerCase();
-    return p.endsWith('.fb2') || p.endsWith('.fb2.zip') || p.endsWith('.fbz');
   }
 }
 
@@ -610,6 +661,15 @@ class _Worker {
       case 'compare':
         _requireDoc();
         return _b.docCompare(_doc, a['a'] as String, a['b'] as String);
+      case 'shiftInfo':
+        _requireDoc();
+        return _shiftInfo(a['page'] as int?, a['y'] as int?);
+      case 'shiftTo':
+        _requireDoc();
+        final xp = _b.docXPointerAtY(_doc, a['y'] as int);
+        if (xp == null || !_b.docGotoXPointer(_doc, xp)) return null;
+        _anchor = xp;
+        return _position();
     }
     throw EngineException('unknown operation $op');
   }
@@ -684,7 +744,7 @@ class _Worker {
     final d = _b.docNew(_width, _height);
     _b.docApplyDefaults(d, a['dpi'] as int);
     // KOReader CreDocument:init(): fb2.css for FB2 and TXT, epub.css for the rest.
-    final css = (a['isFb2'] as bool) ? 'fb2.css' : 'epub.css';
+    final css = (a['fb2Styles'] as bool) ? 'fb2.css' : 'epub.css';
     _cssFile = '$_dataDir/css/$css';
     _appliedCss = null;
     _bookLanguage = fixLanguageTag(a['langHint'] as String?);
@@ -730,6 +790,33 @@ class _Worker {
     'percent': _b.docPercent(_doc),
     'xpointer': _anchor ?? _b.docGetXPointer(_doc),
   };
+
+  List<Object?> _pageRanges(int first, int last) => jsonDecode(_b.docPageRanges(_doc, first, last) ?? '[]') as List;
+
+  Object? _shiftInfo(int? page, int? y) {
+    final area = (jsonDecode(_b.docTextArea(_doc) ?? '[0,0]') as List).cast<int>();
+    final span = area[1];
+    final count = _b.docPageCount(_doc);
+    int start(int p) {
+      final r = _pageRanges(p, p);
+      return r.isEmpty ? 0 : ((r[0]! as List)[1] as int);
+    }
+
+    final top = y ?? start(page ?? _b.docCurrentPage(_doc));
+    // One screen before the place and two after it: a drag moves the text
+    // by one screen at most.
+    final from = top - span;
+    final to = top + 2 * span;
+    return {
+      'top': top,
+      'areaTop': area[0],
+      'areaHeight': span,
+      'pages': _pageRanges(_b.docPageAtY(_doc, from) - 1, _b.docPageAtY(_doc, to) + 1),
+      'lines': jsonDecode(_b.docLinesInRange(_doc, from, to) ?? '[]'),
+      'min': start(1),
+      'max': start(count),
+    };
+  }
 
   Object? _drawPage(int page, bool invertImages) {
     final size = _width * _height * 4;

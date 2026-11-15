@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../app_services.dart';
 import '../../data/database.dart';
+import '../book_formats.dart';
 import 'book_cover.dart';
 
 Future<void> showBookActions(BuildContext context, Book book, {required VoidCallback onOpen}) {
@@ -268,7 +269,7 @@ Future<void> showBookInfo(BuildContext context, Book book) {
     if (book.series.isNotEmpty)
       ('Series', book.seriesNumber > 0 ? '${book.series} #${book.seriesNumber}' : book.series),
     ('Language', book.language),
-    ('Format', book.format),
+    ('Format', formatOfPath(book.path)?.label ?? book.format),
     ('Progress', '${(book.progress * 100).toStringAsFixed(1)}%'),
     ('Last read', _date(book.lastOpenedAt)),
     ('Added', _date(book.addedAt)),

@@ -12,17 +12,21 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../app_services.dart';
 import '../data/database.dart';
 import '../dict/dictionary_screens.dart';
+import '../engine/cre_engine.dart' show EngineException;
+import '../library/book_formats.dart';
 import '../sync/kosync_settings_screen.dart';
 import 'advanced_screens.dart';
 import 'reader_controller.dart';
 import 'tap_zones.dart';
 import 'widgets/annotation_widgets.dart';
+import 'widgets/back_place_button.dart';
 import 'widgets/goto_dialog.dart';
 import 'widgets/page_marks.dart';
 import 'widgets/position_info_sheet.dart';
 import 'widgets/reader_footer.dart';
 import 'widgets/search_sheet.dart';
 import 'widgets/settings_sheet.dart';
+import 'widgets/shifted_page.dart';
 import 'widgets/toc_drawer.dart';
 
 class ReaderScreen extends StatefulWidget {
@@ -55,6 +59,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   double _dragStartValue = 0.5;
   double _dragStartY = 0;
   Timer? _brightnessHint;
+
+  /// A vertical drag moves the text (line shift).
+  bool _shiftDrag = false;
 
   @override
   void initState() {
@@ -156,6 +163,34 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     });
   }
 
+  // A vertical drag in the left eighth changes the brightness. Elsewhere on
+  // the page it moves the text by whole lines.
+  void _verticalDragStart(DragStartDetails d, Size size) {
+    if (_isEdgeDrag(d.localPosition, size)) {
+      unawaited(_brightnessDragStart(d, size));
+      return;
+    }
+    if (_showBars) return;
+    _activity();
+    _shiftDrag = _controller!.beginShift();
+  }
+
+  void _verticalDragUpdate(DragUpdateDetails d, Size size) {
+    if (!_shiftDrag) {
+      _brightnessDragUpdate(d, size);
+      return;
+    }
+    final c = _controller!;
+    // The finger goes up: the text goes forward. Page pixels.
+    c.dragShift(-d.delta.dy / c.pixelScale(size));
+  }
+
+  void _verticalDragEnd() {
+    if (!_shiftDrag) return;
+    _shiftDrag = false;
+    _controller!.endShift();
+  }
+
   Future<void> _onSyncEvent(SyncEvent e) async {
     if (!mounted) return;
     switch (e) {
@@ -254,6 +289,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
   }
 
+  String _openError(Object error) => error is EngineException && error.message.contains('cannot open')
+      ? kCannotOpenMessage
+      : 'Cannot open this book.\n\n$error';
+
   void _onSwipe(DragEndDetails d) {
     _activity();
     final v = d.primaryVelocity ?? 0;
@@ -350,13 +389,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           content = Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
-              child: Text('Cannot open this book.\n\n${c.error}', style: TextStyle(color: c.theme.text)),
+              child: Text(_openError(c.error!), style: TextStyle(color: c.theme.text)),
             ),
           );
         } else if (image == null) {
           content = const Center(child: CircularProgressIndicator());
         } else {
-          content = RawImage(image: image, fit: BoxFit.fill, filterQuality: FilterQuality.medium);
+          final shift = c.shiftView;
+          content = shift == null
+              ? RawImage(image: image, fit: BoxFit.fill, filterQuality: FilterQuality.medium)
+              // A dark theme draws black on white and inverts on screen.
+              : ShiftedPage(view: shift, background: c.theme.isDark ? Colors.white : c.theme.background);
           if (c.theme.isDark) {
             content = ColorFiltered(colorFilter: ColorFilter.matrix(c.theme.darkMatrix), child: content);
           }
@@ -371,11 +414,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               behavior: HitTestBehavior.opaque,
               onTapUp: (d) => _onTap(d, size),
               onHorizontalDragEnd: _onSwipe,
-              onVerticalDragStart: (d) => _brightnessDragStart(d, size),
-              onVerticalDragUpdate: (d) => _brightnessDragUpdate(d, size),
-              onVerticalDragEnd: _brightnessDragEnd,
+              onVerticalDragStart: (d) => _verticalDragStart(d, size),
+              onVerticalDragUpdate: (d) => _verticalDragUpdate(d, size),
+              onVerticalDragEnd: (d) {
+                _brightnessDragEnd(d);
+                _verticalDragEnd();
+              },
+              onVerticalDragCancel: _verticalDragEnd,
               onLongPressStart: (d) {
                 _activity();
+                _anchor = null;
+                // Text selection is off while the view is shifted.
+                if (c.isShifted) return;
                 final px = _toPage(d.localPosition);
                 _anchor = px;
                 c.selectWordAt(px);
@@ -438,12 +488,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             Positioned(
               left: 12,
               bottom: 12,
-              child: FloatingActionButton.small(
-                heroTag: null,
-                tooltip: 'Back to the previous place',
-                onPressed: c.goBack,
-                child: const Icon(Icons.undo),
-              ),
+              child: BackPlaceButton(onBack: c.goBack, onClear: c.clearBack),
             ),
         ];
         return Stack(children: layers);
