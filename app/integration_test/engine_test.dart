@@ -369,11 +369,128 @@ void main() {
       final around = await engine.shiftInfo(y: row);
       expect(around.top, row);
       expect(around.lines.any((l) => l[0] == row), isTrue);
-      // The page turn rule: forward shows the page with the first line below.
+      // A forward turn continues at the end of the view: a shifted view
+      // that starts there, or the fixed page that starts there.
       final end = g.visibleEnd(row);
-      expect(end, greaterThan(page2.end - 1));
-      expect(g.pageAt(shiftTurnRow(forward: true, top: row, end: end)), 3);
-      expect(g.pageAt(shiftTurnRow(forward: false, top: row, end: end)), 2);
+      final turn = alignedTurn(g, ViewSpan(row, end), forward: true, history: []);
+      final next = switch (turn) {
+        TurnToView(:final view) => view.start,
+        TurnToPage(:final page) => g.page(page)!.start,
+        TurnNone() => -1,
+      };
+      expect(next, end);
+      await engine.closeBook();
+    });
+
+    ShiftGeometry geometryOf(ShiftInfo info) => ShiftGeometry.fromRows(
+      pages: info.pages,
+      lines: info.lines,
+      minY: info.minY,
+      maxY: info.maxY,
+      areaTop: info.areaTop,
+      areaHeight: info.areaHeight,
+      bookEnd: info.bookEnd,
+    );
+
+    test('chapter starts are forced page breaks', () async {
+      final opened = await openBook(engine, 'sample.fb2');
+      final count = opened.position.pageCount;
+      final forced = <int>{};
+      final all = <int>{};
+      for (var page = 1; page <= count; page++) {
+        for (final p in geometryOf(await engine.shiftInfo(page: page)).pages) {
+          all.add(p.page);
+          if (p.forced) forced.add(p.page);
+        }
+      }
+      final chapters = {for (final e in opened.toc) e.page}..remove(1);
+      // ignore: avoid_print
+      print('SHIFT forced pages ${forced.toList()..sort()}, chapter pages ${chapters.toList()..sort()} of $count');
+      expect(all.length, count);
+      // Each chapter of sample.fb2 fits on one page: every page after the
+      // title page starts a chapter, and no other page is forced.
+      expect(forced, chapters);
+      await engine.closeBook();
+    });
+
+    test('pages inside an EPUB chapter file are not forced (juliet.epub)', () async {
+      final opened = await openBook(engine, 'juliet.epub');
+      final count = opened.position.pageCount;
+      final forced = <int>{};
+      final all = <int>{};
+      for (var page = 1; page <= count; page += 3) {
+        for (final p in geometryOf(await engine.shiftInfo(page: page)).pages) {
+          all.add(p.page);
+          if (p.forced) forced.add(p.page);
+        }
+      }
+      // ignore: avoid_print
+      print('SHIFT juliet.epub: ${forced.length} forced of ${all.length} pages seen, $count pages');
+      expect(all.length, count);
+      expect(forced, isNotEmpty, reason: 'each chapter file starts a new page');
+      expect(forced, isNot(contains(1)));
+      expect(forced.length, lessThan(count ~/ 2));
+      await engine.closeBook();
+    });
+
+    test('marks in document rows match the boxes on the page', () async {
+      await openBook(engine, 'sample.fb2');
+      await engine.gotoPage(2);
+      final info0 = await engine.shiftInfo(page: 2);
+      final page2 = geometryOf(info0).page(2)!;
+      // A word in the middle of the text area of page 2.
+      final y = info0.areaTop + info0.areaHeight ~/ 2;
+      final sel = await engine.select(width ~/ 2, y, width ~/ 2, y);
+      expect(sel, isNotNull);
+      final onPage = (await engine.boxes({'w': (sel!.pos0, sel.pos1)}))['w']!;
+      final info = await engine.shiftInfo(page: 2, ranges: {'w': (sel.pos0, sel.pos1)});
+      final rows = info.marks['w']!;
+      expect(rows.length, onPage.length);
+      for (var i = 0; i < rows.length; i++) {
+        expect(rows[i].left, onPage[i].left);
+        expect(rows[i].right, onPage[i].right);
+        // Page image row (top margin + n) shows document row (page start + n).
+        expect(rows[i].top - page2.start + info.areaTop, onPage[i].top);
+        expect(rows[i].bottom - page2.start + info.areaTop, onPage[i].bottom);
+      }
+      await engine.closeBook();
+    });
+
+    test('links in document rows match the links of the page', () async {
+      final opened = await openBook(engine, 'sample.fb2');
+      var found = 0;
+      for (var page = 1; page <= opened.position.pageCount; page++) {
+        await engine.gotoPage(page);
+        final links = await engine.pageLinks();
+        if (links.isEmpty) continue;
+        found++;
+        final info = await engine.shiftInfo(page: page);
+        final start = geometryOf(info).page(page)!.start;
+        for (final l in links) {
+          final match = info.links.where((r) => r.href == l.href).toList();
+          expect(match, isNotEmpty, reason: 'link ${l.href} of page $page');
+          final a = l.boxes.first;
+          final b = match.first.boxes.first;
+          expect(b.left, a.left);
+          expect(b.top - start + info.areaTop, a.top);
+        }
+      }
+      // ignore: avoid_print
+      print('SHIFT pages with links: $found');
+      expect(found, greaterThan(0), reason: 'sample.fb2 has a footnote link');
+      await engine.closeBook();
+    });
+
+    test('row of an XPointer', () async {
+      await openBook(engine, 'sample.fb2');
+      final p = await engine.gotoPage(3);
+      final g = geometryOf(await engine.shiftInfo(page: 3));
+      final row = await engine.rowOf(p.xpointer!);
+      expect(row, isNotNull);
+      // The top of page 3 is in the first line of the page.
+      final first = g.lines.firstWhere((l) => l.bottom > g.page(3)!.start);
+      expect(g.lineTopAt(row!), first.top);
+      expect(await engine.rowOf('/body/DocFragment[99]/p[1].0'), isNull);
       await engine.closeBook();
     });
   });

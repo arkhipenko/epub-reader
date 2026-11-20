@@ -12,6 +12,9 @@ class PageMarksPainter extends CustomPainter {
     required this.scale,
     required this.selectionColor,
     this.dark = false,
+    this.dy = 0,
+    this.clipTop,
+    this.clipBottom,
   });
 
   /// Boxes in page pixels by key (annotation id, 'sel', 'hit').
@@ -25,10 +28,25 @@ class PageMarksPainter extends CustomPainter {
   /// On a dark page, multiply would hide the color; blend normally.
   final bool dark;
 
-  Rect _rect(PageRect r) => Rect.fromLTRB(r.left * scale, r.top * scale, r.right * scale, r.bottom * scale);
+  /// Added to the top and bottom of each box (page pixels). A shifted view
+  /// gives its boxes in document rows and moves them by this offset.
+  final double dy;
+
+  /// The marks show only between these rows (page pixels), as the text of
+  /// a shifted view. Null: no limit.
+  final double? clipTop;
+  final double? clipBottom;
+
+  Rect _rect(PageRect r) =>
+      Rect.fromLTRB(r.left * scale, (r.top + dy) * scale, r.right * scale, (r.bottom + dy) * scale);
 
   @override
   void paint(Canvas canvas, Size size) {
+    final top = clipTop;
+    final bottom = clipBottom;
+    if (top != null && bottom != null) {
+      canvas.clipRect(Rect.fromLTRB(0, top * scale, size.width, bottom * scale));
+    }
     for (final e in marks.entries) {
       final id = int.tryParse(e.key);
       if (id == null) continue;
@@ -94,5 +112,8 @@ class PageMarksPainter extends CustomPainter {
       old.annotations != annotations ||
       old.scale != scale ||
       old.selectionColor != selectionColor ||
-      old.dark != dark;
+      old.dark != dark ||
+      old.dy != dy ||
+      old.clipTop != clipTop ||
+      old.clipBottom != clipBottom;
 }

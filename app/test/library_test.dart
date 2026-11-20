@@ -156,6 +156,7 @@ void main() {
           favorite: fav,
           deletedAt: deleted,
           missing: false,
+          lastShifted: false,
         );
 
     final books = [
@@ -243,11 +244,12 @@ void main() {
   test('migration from schema 3 adds the book settings and keeps the data', () async {
     final dir = await Directory.systemTemp.createTemp('epub_reader_db');
     final file = File('${dir.path}/app.sqlite');
-    // Make a schema 3 database: the current tables without the new column.
+    // Make a schema 3 database: the current tables without the newer columns.
     var db = AppDatabase(NativeDatabase(file));
     await db.upsertBook(id: 'b3', path: '/b.epub', title: 'Three', authors: 'A', format: 'EPUB', language: 'ru');
     await db.savePosition('b3', '/body/DocFragment[2]/body/p[1]/text().0', 0.4);
     await db.customStatement('ALTER TABLE books DROP COLUMN settings');
+    await db.customStatement('ALTER TABLE books DROP COLUMN last_shifted');
     await db.customStatement('PRAGMA user_version = 3');
     await db.close();
 
@@ -259,6 +261,34 @@ void main() {
     expect(b.settings, isNull);
     await db.saveBookSettings('b3', '{"ignoreMargins":true}');
     expect((await db.bookById('b3'))!.settings, '{"ignoreMargins":true}');
+    await db.close();
+    await dir.delete(recursive: true);
+  });
+
+  test('migration from schema 4 adds the shifted flag of the position', () async {
+    final dir = await Directory.systemTemp.createTemp('epub_reader_db');
+    final file = File('${dir.path}/app.sqlite');
+    // Make a schema 4 database: the current tables without the new column.
+    var db = AppDatabase(NativeDatabase(file));
+    await db.upsertBook(id: 'b4', path: '/b.epub', title: 'Four', authors: 'A', format: 'EPUB', language: 'en');
+    await db.savePosition('b4', '/body/DocFragment[2]/body/p[5]/text().0', 0.5);
+    await db.customStatement('ALTER TABLE books DROP COLUMN last_shifted');
+    await db.customStatement('PRAGMA user_version = 4');
+    await db.close();
+
+    db = AppDatabase(NativeDatabase(file));
+    var b = (await db.bookById('b4'))!;
+    expect(b.lastXPointer, '/body/DocFragment[2]/body/p[5]/text().0');
+    expect(b.progress, 0.5);
+    // A position saved before the upgrade is the top of a fixed page.
+    expect(b.lastShifted, isFalse);
+    await db.savePosition('b4', '/body/DocFragment[2]/body/p[6]/text().0', 0.55, shifted: true);
+    b = (await db.bookById('b4'))!;
+    expect(b.lastShifted, isTrue);
+    expect(b.lastXPointer, '/body/DocFragment[2]/body/p[6]/text().0');
+    // A position of a fixed page clears the flag.
+    await db.savePosition('b4', '/body/DocFragment[2]/body/p[7]/text().0', 0.6);
+    expect((await db.bookById('b4'))!.lastShifted, isFalse);
     await db.close();
     await dir.delete(recursive: true);
   });

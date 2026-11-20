@@ -396,12 +396,37 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           content = const Center(child: CircularProgressIndicator());
         } else {
           final shift = c.shiftView;
-          content = shift == null
-              ? RawImage(image: image, fit: BoxFit.fill, filterQuality: FilterQuality.medium)
-              // A dark theme draws black on white and inverts on screen.
-              : ShiftedPage(view: shift, background: c.theme.isDark ? Colors.white : c.theme.background);
-          if (c.theme.isDark) {
-            content = ColorFiltered(colorFilter: ColorFilter.matrix(c.theme.darkMatrix), child: content);
+          // A dark theme draws black on white and inverts on screen.
+          final filter = c.theme.isDark ? ColorFilter.matrix(c.theme.darkMatrix) : null;
+          if (shift == null) {
+            content = RawImage(image: image, fit: BoxFit.fill, filterQuality: FilterQuality.medium);
+            if (filter != null) content = ColorFiltered(colorFilter: filter, child: content);
+          } else {
+            // The marks of a shifted view move with its text.
+            final shiftMarks = c.shiftMarks;
+            final scale = c.pixelScale(size);
+            final accent = Theme.of(context).colorScheme.primary;
+            content = ShiftedPage(
+              view: shift,
+              background: c.theme.isDark ? Colors.white : c.theme.background,
+              filter: filter,
+              overlay: shiftMarks.isEmpty
+                  ? null
+                  : (y, rows) => IgnorePointer(
+                      child: CustomPaint(
+                        painter: PageMarksPainter(
+                          marks: shiftMarks,
+                          annotations: {for (final a in c.annotations) a.id: a},
+                          scale: scale,
+                          selectionColor: accent,
+                          dark: c.theme.isDark,
+                          dy: shift.areaTop - y,
+                          clipTop: shift.areaTop.toDouble(),
+                          clipBottom: shift.areaTop + rows,
+                        ),
+                      ),
+                    ),
+            );
           }
         }
         final scale = c.pixelScale(size);

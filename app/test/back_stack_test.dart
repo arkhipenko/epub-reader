@@ -11,11 +11,23 @@ void main() {
       s.push('/a');
       s.push('/b');
       expect(s.isNotEmpty, isTrue);
-      expect(s.pop(), '/b');
+      expect(s.pop()?.xpointer, '/b');
       expect(s.isNotEmpty, isTrue);
-      expect(s.pop(), '/a');
+      expect(s.pop()?.xpointer, '/a');
       expect(s.isEmpty, isTrue);
       expect(s.pop(), isNull);
+    });
+
+    test('a place keeps the kind of view: fixed page or shifted view', () {
+      final s = BackStack();
+      s.push('/a');
+      s.push('/b', shifted: true);
+      final b = s.pop()!;
+      expect(b.xpointer, '/b');
+      expect(b.shifted, isTrue);
+      final a = s.pop()!;
+      expect(a.xpointer, '/a');
+      expect(a.shifted, isFalse);
     });
 
     test('clear forgets all places', () {
@@ -27,7 +39,7 @@ void main() {
       expect(s.pop(), isNull);
       // A new link after a clear saves a place again.
       s.push('/c');
-      expect(s.pop(), '/c');
+      expect(s.pop()?.xpointer, '/c');
     });
 
     test('clear on an empty stack does nothing', () {

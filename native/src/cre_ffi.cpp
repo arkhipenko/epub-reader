@@ -18,6 +18,7 @@
 #include "lvdocview.h"
 #include "lvdocviewprops.h"
 #include "lvtinydom.h"
+#include "fb2def.h"
 #include "lvrend.h"
 #include "lvpagesplitter.h"
 #include "lvtextfm.h"
@@ -695,6 +696,70 @@ char *cre_doc_text_area(CreDoc *doc) {
     return dup_str(out);
 }
 
+// The page break values that force a new page (lvrend CssPageBreak2Flags).
+static bool forces_page(css_page_break_t pb) {
+    return pb == css_pb_always || pb == css_pb_left || pb == css_pb_right || pb == css_pb_page ||
+           pb == css_pb_recto || pb == css_pb_verso;
+}
+
+static bool break_before(ldomNode *n) {
+    css_style_ref_t s = n->getStyle();
+    return !s.isNull() && forces_page(s->page_break_before);
+}
+
+static bool rendered_element(ldomNode *n) { return n && n->isElement() && n->getRendMethod() != erm_invisible; }
+
+// True when the element, or its last rendered descendant on each level,
+// has page-break-after "always": the element ends where a page ends.
+static bool ends_with_break(ldomNode *n) {
+    for (int guard = 0; n && guard < 64; guard++) {
+        css_style_ref_t s = n->getStyle();
+        if (!s.isNull() && forces_page(s->page_break_after)) return true;
+        ldomNode *last = NULL;
+        for (int i = (int)n->getChildCount() - 1; i >= 0; i--) {
+            ldomNode *c = n->getChildNode(i);
+            if (rendered_element(c)) {
+                last = c;
+                break;
+            }
+        }
+        n = last;
+    }
+    return false;
+}
+
+// True when page `index` (0-based) starts after a forced page break. The
+// page splitter does not keep the reason for a page end, so this reads the
+// styles that cause one: the elements that start at the page start, and
+// the element before each of them. An element that starts on an earlier
+// page ends the search.
+static bool starts_after_break(CreDoc *doc, LVRendPageList *pages, int index) {
+    if (index <= 0 || index >= pages->length()) return false;
+    const LVRendPageInfo *page = (*pages)[index];
+    const LVRendPageInfo *prev = (*pages)[index - 1];
+    if (prev->flags & RN_PAGE_TYPE_COVER) return true;
+    const int prev_end = prev->start + prev->height;
+    ldomNode *root = doc->dom->getRootNode();
+    ldomNode *n = root ? root->elementFromPoint(lvPoint(0, page->start), PT_DIR_SCAN_FORWARD) : NULL;
+    for (int guard = 0; n && n != root && guard < 64; guard++) {
+        lvRect rc;
+        n->getAbsRect(rc);
+        if (rc.top < prev_end - 1) break;
+        if (break_before(n)) return true;
+        ldomNode *parent = n->getParentNode();
+        if (parent) {
+            for (int i = n->getNodeIndex() - 1; i >= 0; i--) {
+                ldomNode *s = parent->getChildNode(i);
+                if (!rendered_element(s)) continue;
+                if (ends_with_break(s)) return true;
+                break;
+            }
+        }
+        n = parent;
+    }
+    return false;
+}
+
 char *cre_doc_page_ranges(CreDoc *doc, int first, int last) {
     if (!doc || !doc->dom) return NULL;
     LVRendPageList *pages = doc->view->getPageList();
@@ -706,7 +771,7 @@ char *cre_doc_page_ranges(CreDoc *doc, int first, int last) {
             const LVRendPageInfo *p = (*pages)[i - 1];
             if (i > first) out << ",";
             out << "[" << lString8::itoa(i) << "," << lString8::itoa(p->start) << "," << lString8::itoa((int)p->height)
-                << "]";
+                << "," << (starts_after_break(doc, pages, i - 1) ? "1" : "0") << "]";
         }
     }
     out << "]";
@@ -803,6 +868,122 @@ char *cre_doc_xpointer_at_y(CreDoc *doc, int y) {
     }
     if (fallback.isNull()) return NULL;
     return dup_str(UnicodeToUtf8(fallback.toString()));
+}
+
+// ---- Marks and links in a shifted view ----
+
+// Page image x of document x 0: the left page margin, as docToWindowPoint
+// adds it on the current page.
+static int page_x_offset(LVDocView *v) {
+    LVRendPageList *pages = v->getPageList();
+    const int cur = v->getCurPage(false);
+    if (pages && cur >= 0 && cur < pages->length()) {
+        lvPoint pt(0, (*pages)[cur]->start);
+        if (v->docToWindowPoint(pt)) return pt.x;
+    }
+    return v->getPageMargins().left;
+}
+
+// Appends the boxes that overlap rows y0..y1. Returns the count.
+static int append_row_boxes(lString8 &out, LVArray<lvRect> &rects, int y0, int y1, int dx) {
+    out << "[";
+    int count = 0;
+    for (int i = 0; i < rects.length(); i++) {
+        const lvRect &rc = rects[i];
+        if (rc.isEmpty() || rc.bottom <= y0 || rc.top >= y1) continue;
+        if (count++ > 0) out << ",";
+        out << "[" << lString8::itoa(rc.left + dx) << "," << lString8::itoa(rc.top) << ","
+            << lString8::itoa(rc.right + dx) << "," << lString8::itoa(rc.bottom) << "]";
+    }
+    out << "]";
+    return count;
+}
+
+char *cre_doc_range_rows(CreDoc *doc, const char *pos0, const char *pos1, int y0, int y1) {
+    if (!doc || !doc->dom) return NULL;
+    ldomXRange r;
+    if (!make_range(doc, pos0, pos1, r)) return dup_str(lString8("[]"));
+    LVArray<lvRect> rects;
+    r.getSegmentRects(rects, false);  // as cre_doc_range_boxes
+    lString8 out;
+    append_row_boxes(out, rects, y0, y1, page_x_offset(doc->view));
+    return dup_str(out);
+}
+
+// The <a> elements with content in a range (LVDocView::getCurrentPageLinks).
+class LinkCollector : public ldomNodeCallback {
+    ldomXRangeList &list_;
+    bool first_text_done_ = false;
+
+    void add(ldomNode *a) {
+        for (int i = 0; i < list_.length(); i++) {
+            if (list_[i]->getStart().getNode() == a) return;  // already there
+        }
+        // <a/> and <a></a> have no text to make a range from.
+        if (a->hasChildren()) list_.add(new ldomXRange(a, true));
+    }
+
+   public:
+    explicit LinkCollector(ldomXRangeList &list) : list_(list) {}
+
+    // The first text of the range can be inside an <a> that starts before it.
+    void onText(ldomXRange *r) override {
+        if (first_text_done_) return;
+        first_text_done_ = true;
+        ldomNode *n = r->getStart().getNode();
+        while (n && !n->isElement()) n = n->getParentNode();
+        while (n && n->getNodeId() != el_a) n = n->getParentNode();
+        if (n) add(n);
+    }
+
+    bool onElement(ldomXPointerEx *ptr) override {
+        ldomNode *e = ptr->getNode();
+        if (e->getNodeId() == el_a) add(e);
+        return true;
+    }
+};
+
+char *cre_doc_links_in_rows(CreDoc *doc, int y0, int y1) {
+    if (!doc || !doc->dom) return NULL;
+    LVDocView *v = doc->view;
+    LVRendPageList *pages = v->getPageList();
+    lString8 out("[");
+    if (pages && pages->length() > 0 && y1 > y0) {
+        const int first = pages->FindNearestPage(y0, 0);
+        const int last = pages->FindNearestPage(y1 - 1, 0);
+        ldomXRangeList links;
+        for (int i = first; i <= last && i < pages->length(); i++) {
+            LVRef<ldomXRange> range = v->getPageDocumentRange(i);
+            if (range.isNull()) continue;
+            LinkCollector collect(links);
+            range->forEach(&collect);
+        }
+        const int dx = page_x_offset(v);
+        bool first_link = true;
+        for (int i = 0; i < links.length(); i++) {
+            ldomXPointer a;
+            lString32 href = links[i]->getHRef(a);
+            if (href.empty()) continue;
+            LVArray<lvRect> rects;
+            links[i]->getSegmentRects(rects, true);  // as cre_doc_page_links
+            lString8 boxes;
+            if (append_row_boxes(boxes, rects, y0, y1, dx) == 0) continue;
+            if (!first_link) out << ",";
+            first_link = false;
+            out << "{\"href\":";
+            json_escape(out, href);
+            out << ",\"boxes\":" << boxes << "}";
+        }
+    }
+    out << "]";
+    return dup_str(out);
+}
+
+int cre_doc_y_of_xpointer(CreDoc *doc, const char *xpointer) {
+    ldomXPointer xp = make_xpointer(doc, xpointer);
+    if (xp.isNull()) return -1;
+    lvPoint pt = xp.toPoint();
+    return pt.y < 0 ? -1 : pt.y;
 }
 
 void cre_free(void *p) { free(p); }

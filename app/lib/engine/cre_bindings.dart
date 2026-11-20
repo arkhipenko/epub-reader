@@ -10,7 +10,7 @@ import 'package:ffi/ffi.dart';
 final class CreDoc extends Opaque {}
 
 /// The C interface version this file is written for (CRE_FFI_VERSION).
-const int kCreFfiVersion = 6;
+const int kCreFfiVersion = 7;
 
 /// cre_doc_draw_page() flag: invert images (for the dark theme, which
 /// inverts the whole page afterwards).
@@ -195,6 +195,20 @@ class CreBindings {
           .lookupFunction<Pointer<Utf8> Function(Pointer<CreDoc>, Int32), Pointer<Utf8> Function(Pointer<CreDoc>, int)>(
             'cre_doc_xpointer_at_y',
           ),
+      _docRangeRows = lib
+          .lookupFunction<
+            Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>, Int32, Int32),
+            Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>, int, int)
+          >('cre_doc_range_rows'),
+      _docLinksInRows = lib
+          .lookupFunction<
+            Pointer<Utf8> Function(Pointer<CreDoc>, Int32, Int32),
+            Pointer<Utf8> Function(Pointer<CreDoc>, int, int)
+          >('cre_doc_links_in_rows'),
+      _docYOfXPointer = lib
+          .lookupFunction<Int32 Function(Pointer<CreDoc>, Pointer<Utf8>), int Function(Pointer<CreDoc>, Pointer<Utf8>)>(
+            'cre_doc_y_of_xpointer',
+          ),
       _free = lib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('cre_free');
 
   /// Opens the native library for the current platform.
@@ -285,7 +299,8 @@ class CreBindings {
   /// JSON [top, height]: the rows of a page image that can hold text.
   String? docTextArea(Pointer<CreDoc> d) => _take(_docTextArea(d));
 
-  /// JSON [[page, start, height], ...] for pages [first] to [last].
+  /// JSON [[page, start, height, forced], ...] for pages [first] to [last].
+  /// forced is 1 when the page starts after a forced page break.
   String? docPageRanges(Pointer<CreDoc> d, int first, int last) => _take(_docPageRanges(d, first, last));
 
   /// JSON [[top, bottom], ...] of the text lines in document rows y0 to y1.
@@ -293,6 +308,21 @@ class CreBindings {
 
   /// XPointer of the first text at or after document row y.
   String? docXPointerAtY(Pointer<CreDoc> d, int y) => _take(_docXPointerAtY(d, y));
+
+  // ---- Marks and links in a shifted view: x in page pixels, y in document rows. ----
+  final Pointer<Utf8> Function(Pointer<CreDoc>, Pointer<Utf8>, Pointer<Utf8>, int, int) _docRangeRows;
+  final Pointer<Utf8> Function(Pointer<CreDoc>, int, int) _docLinksInRows;
+  final int Function(Pointer<CreDoc>, Pointer<Utf8>) _docYOfXPointer;
+
+  /// JSON [[l, t, r, b], ...]: line boxes of a range in document rows y0 to y1.
+  String? docRangeRows(Pointer<CreDoc> d, String a, String b, int y0, int y1) =>
+      using((m) => _take(_docRangeRows(d, a.toNativeUtf8(allocator: m), b.toNativeUtf8(allocator: m), y0, y1)));
+
+  /// JSON [{href, boxes}, ...]: links with a box in document rows y0 to y1.
+  String? docLinksInRows(Pointer<CreDoc> d, int y0, int y1) => _take(_docLinksInRows(d, y0, y1));
+
+  /// Document row of the XPointer, or -1 when it is not in the document.
+  int docYOfXPointer(Pointer<CreDoc> d, String xp) => using((m) => _docYOfXPointer(d, xp.toNativeUtf8(allocator: m)));
 
   /// Metadata JSON for the library, and the cover written to [coverOut].
   String? bookInfo(String path, String coverOut) =>

@@ -23,7 +23,7 @@ extern "C" {
 #define CRE_API __attribute__((visibility("default")))
 
 /* Version of this C interface. Increase it when a signature changes. */
-#define CRE_FFI_VERSION 6
+#define CRE_FFI_VERSION 7
 
 /* Flags for cre_doc_draw_page(). */
 #define CRE_DRAW_INVERT_IMAGES 1
@@ -150,7 +150,10 @@ CRE_API int cre_doc_compare_xpointers(CreDoc *doc, const char *a, const char *b)
 CRE_API char *cre_doc_text_area(CreDoc *doc);
 
 /* Slices of pages first..last (1-based, clamped to the book):
- * JSON [[page, start, height], ...]. */
+ * JSON [[page, start, height, forced], ...]. forced (version 7) is 1 when
+ * the page starts after a forced page break (page-break-before or
+ * page-break-after "always" in the styles of the elements at the page
+ * start, or a cover page before it), else 0. */
 CRE_API char *cre_doc_page_ranges(CreDoc *doc, int first, int last);
 
 /* Page that holds document row y (1-based). A row between two pages gives
@@ -165,6 +168,23 @@ CRE_API char *cre_doc_lines_in_range(CreDoc *doc, int y0, int y1);
 /* XPointer of the first text at or after document row y (the reading
  * position of a view whose first row is y), or NULL. */
 CRE_API char *cre_doc_xpointer_at_y(CreDoc *doc, int y);
+
+/* ---- Marks and links in a shifted view (version 7) ----
+ * A box here is [left, top, right, bottom]: x in page image pixels (as
+ * the boxes of the current page), y in document rows. Page image row
+ * (top margin + n) of a page shows document row (page start + n). */
+
+/* Line boxes of a text range that overlap document rows y0..y1:
+ * JSON [[l,t,r,b], ...]. Empty array when there are none. */
+CRE_API char *cre_doc_range_rows(CreDoc *doc, const char *pos0, const char *pos1, int y0, int y1);
+
+/* Links with a box that overlaps document rows y0..y1, collected from the
+ * pages that hold these rows: JSON [{href, boxes: [[l,t,r,b], ...]}, ...]. */
+CRE_API char *cre_doc_links_in_rows(CreDoc *doc, int y0, int y1);
+
+/* Document row of the text at the XPointer, or -1 when it is not in the
+ * document. */
+CRE_API int cre_doc_y_of_xpointer(CreDoc *doc, const char *xpointer);
 
 CRE_API void cre_free(void *p);
 

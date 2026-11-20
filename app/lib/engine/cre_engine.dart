@@ -154,7 +154,8 @@ class TextSelection {
   final String pos1;
 }
 
-/// A rectangle in page pixels of the current page.
+/// A rectangle in page pixels of the current page. In a shifted view
+/// (ShiftInfo marks and links) top and bottom are document rows instead.
 class PageRect {
   const PageRect(this.left, this.top, this.right, this.bottom);
 
@@ -242,6 +243,11 @@ class ShiftInfo {
     required this.lines,
     required this.minY,
     required this.maxY,
+    required this.bookEnd,
+    required this.from,
+    required this.to,
+    this.marks = const {},
+    this.links = const [],
   });
 
   /// Document row of the place that was asked for.
@@ -251,7 +257,8 @@ class ShiftInfo {
   final int areaTop;
   final int areaHeight;
 
-  /// [page, start, height] of the pages around the place.
+  /// [page, start, height, forced] of the pages around the place. forced
+  /// is 1 when the page starts after a forced page break.
   final List<List<int>> pages;
 
   /// [top, bottom] of the text lines around the place.
@@ -260,6 +267,20 @@ class ShiftInfo {
   /// Start of the first and of the last page.
   final int minY;
   final int maxY;
+
+  /// The row after the last page.
+  final int bookEnd;
+
+  /// The document rows that [lines], [marks] and [links] cover.
+  final int from;
+  final int to;
+
+  /// Boxes of the asked ranges by key, in document rows. Keys of ranges
+  /// without a box in these rows are left out.
+  final Map<String, List<PageRect>> marks;
+
+  /// Links in these rows, with boxes in document rows.
+  final List<PageLink> links;
 }
 
 class EngineException implements Exception {
@@ -488,10 +509,22 @@ class CreEngine {
   }
 
   /// Geometry for a line shift around the start of [page], or around
-  /// document row [y].
-  Future<ShiftInfo> shiftInfo({int? page, int? y}) async {
-    final r = (await _call('shiftInfo', {'page': page, 'y': y}))! as Map;
+  /// document row [y]. [ranges] maps a key to (pos0, pos1): their boxes in
+  /// the rows of the geometry come back as [ShiftInfo.marks].
+  Future<ShiftInfo> shiftInfo({int? page, int? y, Map<String, (String, String)> ranges = const {}}) async {
+    final r =
+        (await _call('shiftInfo', {
+              'page': page,
+              'y': y,
+              'r': [
+                for (final e in ranges.entries) [e.key, e.value.$1, e.value.$2],
+              ],
+            }))!
+            as Map;
     List<List<int>> rows(Object? v) => [for (final e in v! as List) (e as List).cast<int>()];
+    List<PageRect> rects(Object? v) => [
+      for (final b in (v! as List).cast<List>()) PageRect(b[0] as int, b[1] as int, b[2] as int, b[3] as int),
+    ];
     return ShiftInfo(
       top: r['top'] as int,
       areaTop: r['areaTop'] as int,
@@ -500,7 +533,19 @@ class CreEngine {
       lines: rows(r['lines']),
       minY: r['min'] as int,
       maxY: r['max'] as int,
+      bookEnd: r['end'] as int,
+      from: r['from'] as int,
+      to: r['to'] as int,
+      marks: {for (final e in (r['marks'] as Map).entries) e.key as String: rects(e.value)},
+      links: [for (final l in (r['links'] as List).cast<Map>()) PageLink(l['href'] as String, rects(l['boxes']))],
     );
+  }
+
+  /// Document row of the text at [xpointer], or null when it is not in
+  /// the document.
+  Future<int?> rowOf(String xpointer) async {
+    final r = (await _call('rowOf', {'xpointer': xpointer}))! as int;
+    return r < 0 ? null : r;
   }
 
   /// Sets the reading position to the first text at document row [y]. The
@@ -663,7 +708,10 @@ class _Worker {
         return _b.docCompare(_doc, a['a'] as String, a['b'] as String);
       case 'shiftInfo':
         _requireDoc();
-        return _shiftInfo(a['page'] as int?, a['y'] as int?);
+        return _shiftInfo(a['page'] as int?, a['y'] as int?, (a['r'] as List? ?? const []).cast<List>());
+      case 'rowOf':
+        _requireDoc();
+        return _b.docYOfXPointer(_doc, a['xpointer'] as String);
       case 'shiftTo':
         _requireDoc();
         final xp = _b.docXPointerAtY(_doc, a['y'] as int);
@@ -793,28 +841,41 @@ class _Worker {
 
   List<Object?> _pageRanges(int first, int last) => jsonDecode(_b.docPageRanges(_doc, first, last) ?? '[]') as List;
 
-  Object? _shiftInfo(int? page, int? y) {
+  Object? _shiftInfo(int? page, int? y, List<List> ranges) {
     final area = (jsonDecode(_b.docTextArea(_doc) ?? '[0,0]') as List).cast<int>();
     final span = area[1];
     final count = _b.docPageCount(_doc);
-    int start(int p) {
+    List<int> range(int p) {
       final r = _pageRanges(p, p);
-      return r.isEmpty ? 0 : ((r[0]! as List)[1] as int);
+      return r.isEmpty ? const [0, 0, 0] : (r[0]! as List).cast<int>();
     }
 
-    final top = y ?? start(page ?? _b.docCurrentPage(_doc));
+    final top = y ?? range(page ?? _b.docCurrentPage(_doc))[1];
     // One screen before the place and two after it: a drag moves the text
-    // by one screen at most.
+    // by one screen at most, and a page turn by one screen.
     final from = top - span;
     final to = top + 2 * span;
+    final last = range(count);
+    final marks = <String, Object?>{};
+    for (final r in ranges) {
+      final json = _b.docRangeRows(_doc, r[1] as String, r[2] as String, from, to);
+      if (json == null) continue;
+      final list = jsonDecode(json) as List;
+      if (list.isNotEmpty) marks[r[0] as String] = list;
+    }
     return {
       'top': top,
       'areaTop': area[0],
       'areaHeight': span,
       'pages': _pageRanges(_b.docPageAtY(_doc, from) - 1, _b.docPageAtY(_doc, to) + 1),
       'lines': jsonDecode(_b.docLinesInRange(_doc, from, to) ?? '[]'),
-      'min': start(1),
-      'max': start(count),
+      'min': range(1)[1],
+      'max': last[1],
+      'end': last[1] + last[2],
+      'from': from,
+      'to': to,
+      'marks': marks,
+      'links': jsonDecode(_b.docLinksInRows(_doc, from, to) ?? '[]'),
     };
   }
 

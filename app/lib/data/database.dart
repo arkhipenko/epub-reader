@@ -49,6 +49,10 @@ class Books extends Table {
   /// values are the defaults.
   TextColumn get settings => text().nullable()();
 
+  /// Schema 5: [lastXPointer] is the first line of a view shifted by lines,
+  /// not of a fixed page. The book opens again as that shifted view.
+  BoolColumn get lastShifted => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
@@ -121,7 +125,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? driftDatabase(name: 'epub_reader'));
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -149,6 +153,9 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 4) {
         await m.addColumn(books, books.settings);
+      }
+      if (from < 5) {
+        await m.addColumn(books, books.lastShifted);
       }
     },
     beforeOpen: (details) async {
@@ -235,9 +242,12 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 
-  Future<void> savePosition(String id, String xpointer, double progress) => (update(
-    books,
-  )..where((b) => b.id.equals(id))).write(BooksCompanion(lastXPointer: Value(xpointer), progress: Value(progress)));
+  /// Saves the reading position. [shifted]: the position is the first line
+  /// of a view shifted by lines (it opens again as that view).
+  Future<void> savePosition(String id, String xpointer, double progress, {bool shifted = false}) =>
+      (update(books)..where((b) => b.id.equals(id))).write(
+        BooksCompanion(lastXPointer: Value(xpointer), progress: Value(progress), lastShifted: Value(shifted)),
+      );
 
   /// Stores the advanced settings of a book (BookSettings JSON, or null for
   /// the defaults).

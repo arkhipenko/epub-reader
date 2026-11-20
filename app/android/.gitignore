@@ -4,6 +4,8 @@ gradle-wrapper.jar
 /gradlew
 /gradlew.bat
 /local.properties
+# Gradle reports of the Android build
+/build/
 GeneratedPluginRegistrant.java
 .cxx/
 

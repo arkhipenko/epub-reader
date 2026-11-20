@@ -82,6 +82,7 @@ class ShiftView {
     required this.end,
     required this.dragging,
     required this.slices,
+    this.settle = false,
   });
 
   /// Document row at the top text edge. It follows the finger in a drag.
@@ -96,6 +97,10 @@ class ShiftView {
   final int? end;
   final bool dragging;
   final List<ShiftSlice> slices;
+
+  /// The view slides to [y] in a short step (after a drag). Otherwise it
+  /// shows [y] at once (a drag follows the finger, a page turn jumps).
+  final bool settle;
 }
 
 class ReaderController extends ChangeNotifier {
@@ -169,6 +174,9 @@ class ReaderController extends ChangeNotifier {
   /// Links of the page on screen.
   List<PageLink> get pageLinks => !isShifted && _marksPage == displayPage ? _links : const [];
 
+  /// Links of the shifted view, with top and bottom in document rows.
+  List<PageLink> get shiftLinks => _geo != null && _shiftY != null ? _shiftLinks : const [];
+
   /// Page of an XPointer in the current layout (cleared on a new layout).
   final Map<String, int> _pageOf = {};
 
@@ -202,8 +210,10 @@ class ReaderController extends ChangeNotifier {
   // ---- Line shift ----
   //
   // A vertical drag moves the text by whole lines. The view then shows the
-  // book from a row that is not the start of a page, until the next page
-  // turn. Highlights, links and text selection are off in that state.
+  // book from a row that is not the start of a page. The page turns after
+  // it continue from that row (an aligned run, see line_shift.dart) until
+  // the reader is on a fixed page again. Text selection is off in that
+  // state; highlights, the search mark and links work.
 
   /// Pages and text lines around the view. Null: not loaded.
   ShiftGeometry? _geo;
@@ -225,6 +235,26 @@ class ReaderController extends ChangeNotifier {
 
   /// Finger travel of a drag before the geometry arrived.
   double _pendingDrag = 0;
+
+  /// Boxes of highlights and of the search hit by key, and the links, in
+  /// the rows of [_geo] (top and bottom are document rows).
+  Map<String, List<PageRect>> _shiftMarks = const {};
+  List<PageLink> _shiftLinks = const [];
+
+  /// The view slides to its row in a short step (after a drag).
+  bool _settleStep = false;
+
+  /// Views that forward turns of the aligned run left, for back turns.
+  final List<ViewSpan> _runHistory = [];
+
+  /// A forward turn ended the aligned run on this fixed page. A back turn
+  /// from it returns to the last view of the run.
+  int? _runEndPage;
+
+  /// [position] is the first line of a shifted view, not a place on a fixed
+  /// page. It is saved with the position: the book opens again as that
+  /// view, and a new layout shows that view again.
+  bool _positionShifted = false;
 
   /// The view is off the fixed pages, or a vertical drag is in progress.
   bool get isShifted => _shiftY != null || _dragging;
@@ -259,6 +289,7 @@ class ReaderController extends ChangeNotifier {
       areaHeight: g.areaHeight,
       end: _dragging ? null : _shiftEnd,
       dragging: _dragging,
+      settle: _settleStep && !_dragging,
       slices: [
         for (final p in g.pages)
           if (p.height > 0 && reach.contains(p.page) && _pages[p.page] != null)
@@ -267,12 +298,67 @@ class ReaderController extends ChangeNotifier {
     );
   }
 
+  /// Marks of the shifted view by key: x in page pixels, top and bottom in
+  /// the rows of [shiftView] (as its slices).
+  Map<String, List<PageRect>> get shiftMarks {
+    if (!isShifted) return const {};
+    if (_geo == null || _shiftY == null) {
+      // The geometry is on its way: the page on screen moves as one slice
+      // that starts at row 0, so page pixel row p is row (p - top margin).
+      if (_marksPage != displayPage || _marks.isEmpty) return const {};
+      final top = (_settings.marginVertical * _dpr).round();
+      return {
+        for (final e in _marks.entries)
+          if (e.key != 'sel') e.key: [for (final r in e.value) PageRect(r.left, r.top - top, r.right, r.bottom - top)],
+      };
+    }
+    return _shiftMarks;
+  }
+
   void _resetShift() {
     _shiftY = null;
     _shiftEnd = null;
     _dragging = false;
     _pendingDrag = 0;
     _geo = null;
+    _shiftMarks = const {};
+    _shiftLinks = const [];
+    _settleStep = false;
+  }
+
+  /// Ends the aligned run: back turns no longer return to its views.
+  void _endRun() {
+    _runHistory.clear();
+    _runEndPage = null;
+  }
+
+  ShiftGeometry _geometryOf(ShiftInfo info) => ShiftGeometry.fromRows(
+    pages: info.pages,
+    lines: info.lines,
+    minY: info.minY,
+    maxY: info.maxY,
+    areaTop: info.areaTop,
+    areaHeight: info.areaHeight,
+    bookEnd: info.bookEnd,
+    coverFrom: info.from,
+    coverTo: info.to,
+  );
+
+  /// Ranges whose boxes a shifted view near [page] needs: the highlights
+  /// and the search hit.
+  Map<String, (String, String)> _shiftRanges(int page) {
+    final ranges = <String, (String, String)>{};
+    for (final a in annotations) {
+      final p0 = a.pos0, p1 = a.pos1;
+      if (p0 == null || p1 == null) continue;
+      final first = _pageOf[a.page] ?? 0;
+      final last = _pageOf[p1] ?? first;
+      // The geometry covers one screen before the view and two after it.
+      if (last >= page - 2 && first <= page + 3) ranges['${a.id}'] = (p0, p1);
+    }
+    final hit = search?.current;
+    if (hit != null) ranges['hit'] = (hit.start, hit.end);
+    return ranges;
   }
 
   /// Pages that the shifted view can show: one screen before it and two
@@ -295,7 +381,7 @@ class ReaderController extends ChangeNotifier {
     final generation = _generation;
     final page = displayPage;
     _geoReady = _serial(() async {
-      final info = await _engine.shiftInfo(page: y == null ? page : null, y: y);
+      final info = await _engine.shiftInfo(page: y == null ? page : null, y: y, ranges: _shiftRanges(page));
       if (generation != _generation || _disposed) return;
       if (y == null) {
         // For a drag that started on a page and still waits for this.
@@ -303,15 +389,10 @@ class ReaderController extends ChangeNotifier {
       } else if (_shiftY == null) {
         return; // the view went back to a page
       }
-      final g = ShiftGeometry.fromRows(
-        pages: info.pages,
-        lines: info.lines,
-        minY: info.minY,
-        maxY: info.maxY,
-        areaTop: info.areaTop,
-        areaHeight: info.areaHeight,
-      );
+      final g = _geometryOf(info);
       _geo = g;
+      _shiftMarks = info.marks;
+      _shiftLinks = info.links;
       if (y == null) {
         _shiftStart = info.top;
         _shiftY = g.clamp(info.top + _pendingDrag);
@@ -338,6 +419,8 @@ class ReaderController extends ChangeNotifier {
   /// cannot move now.
   bool beginShift() {
     if (!isOpen || selection != null || _renderSize == null || _dragging) return false;
+    // A drag starts a new aligned run.
+    _endRun();
     _dragging = true;
     _pendingDrag = 0;
     final y = _shiftY;
@@ -393,22 +476,139 @@ class ReaderController extends ChangeNotifier {
     }
     _shiftY = row.toDouble();
     _shiftEnd = g.visibleEnd(row);
+    _settleStep = true;
     notifyListeners();
+    _followShift(row);
+    _loadGeometry(y: row);
+  }
+
+  /// Sets the reading position to the first line of the shifted view that
+  /// starts at [row]: the KOReader rule for its scroll view. The page is
+  /// the one that holds that line.
+  void _followShift(int row) {
     unawaited(
       _serial(() async {
         if (_shiftY != row.toDouble() || _dragging) return; // moved again
         final p = await _engine.shiftTo(row);
         if (p == null || _disposed || _shiftY != row.toDouble()) return;
-        // The reading position is the first line on screen (the KOReader
-        // rule for its scroll view). The page is the one that holds it.
         position = p;
+        _positionShifted = true;
         displayPage = p.page;
         notifyListeners();
         _sync?.onPageChanged(p.page, () => unawaited(pushProgress()));
         _scheduleSave();
       }),
     );
-    _loadGeometry(y: row);
+  }
+
+  /// A page turn from the shifted view. The geometry must hold the lines
+  /// of the next view. It loads again after each turn, and a quick second
+  /// turn can come before that: such a turn waits for it once.
+  void _turnShifted(bool forward, {bool retried = false}) {
+    final g = _geo!;
+    final top = _shiftY!.round();
+    final current = ViewSpan(top, _shiftEnd ?? g.visibleEnd(top));
+    final covered = forward ? g.covers(current.end, current.end + g.areaHeight) : g.covers(top - g.areaHeight, top);
+    if (!covered && !retried) {
+      _geoReady.then((_) {
+        if (_disposed || _dragging || _geo == null || _shiftY != top.toDouble()) return;
+        _turnShifted(forward, retried: true);
+      });
+      return;
+    }
+    switch (alignedTurn(g, current, forward: forward, history: _runHistory)) {
+      case TurnNone():
+        return;
+      case TurnToPage(:final page):
+        _countTurn(forward);
+        if (forward) {
+          // Back from this page returns to the view before it.
+          _runEndPage = page;
+        } else {
+          _endRun();
+        }
+        _showFixedPage(page);
+      case TurnToView(:final view):
+        _countTurn(forward);
+        _shiftY = view.start.toDouble();
+        _shiftEnd = view.end;
+        _settleStep = false;
+        notifyListeners();
+        _followShift(view.start);
+        _loadGeometry(y: view.start);
+    }
+  }
+
+  /// Shows a shifted view after the engine went to [p], with the geometry
+  /// [info] around it. Runs inside a serial engine operation.
+  Future<void> _enterShift(EnginePosition p, ShiftInfo info, ViewSpan view) async {
+    final g = _geometryOf(info);
+    final generation = _generation;
+    // The pages of the view first, so that it shows without gaps.
+    for (final s in g.pages) {
+      if (s.end > view.start && s.start < view.end) await _ensurePage(s.page, p.pageCount);
+    }
+    if (_disposed || generation != _generation) return;
+    _resetShift();
+    _geo = g;
+    _shiftMarks = info.marks;
+    _shiftLinks = info.links;
+    _shiftY = view.start.toDouble();
+    _shiftEnd = view.end;
+    position = p;
+    _positionShifted = true;
+    displayPage = p.page;
+    notifyListeners();
+    _sync?.onPageChanged(p.page, () => unawaited(pushProgress()));
+    // The image that showed while a new layout rendered.
+    final fallback = _fallback;
+    if (fallback != null) {
+      _fallback = null;
+      _disposeLater(fallback);
+    }
+    _scheduleSave();
+    unawaited(_serial(_renderShiftPages));
+  }
+
+  /// Shows [view] of the aligned run again: a back turn from the page where
+  /// a forward turn ended the run.
+  void _resumeShift(ViewSpan view) {
+    _serial(() async {
+      final p = await _engine.shiftTo(view.start);
+      if (p == null || _disposed) return;
+      final info = await _engine.shiftInfo(y: view.start, ranges: _shiftRanges(p.page));
+      await _enterShift(p, info, view);
+    });
+  }
+
+  /// Shows the shifted view that starts at the line of [xpointer]: a place
+  /// on the back stack, the position of a book that closed in a shifted
+  /// view, or the position after a new layout. Returns false when the line
+  /// is not in the book or starts a fixed page. Runs inside a serial engine
+  /// operation.
+  Future<bool> _showShiftedAt(String xpointer) async {
+    final row = await _engine.rowOf(xpointer);
+    if (row == null) return false;
+    final p = await _engine.gotoXPointer(xpointer);
+    if (p == null) return false;
+    // The pages of the highlights, so that the view gets their marks.
+    await _refreshMarks(p.page);
+    if (_disposed) return false;
+    final info = await _engine.shiftInfo(y: row, ranges: _shiftRanges(p.page));
+    final g = _geometryOf(info);
+    final start = g.lineTopAt(row);
+    if (g.pageStartingAt(start) != null) return false;
+    await _enterShift(p, info, ViewSpan(start, g.visibleEnd(start)));
+    return true;
+  }
+
+  /// Shows [p] at open or after a new layout: as the shifted view that
+  /// starts at its line when [shifted], else as the fixed page that holds
+  /// it. Runs inside a serial engine operation.
+  Future<void> _showPosition(EnginePosition p, {required bool shifted}) async {
+    final xp = p.xpointer;
+    if (shifted && xp != null && await _showShiftedAt(xp)) return;
+    await _setPosition(p);
   }
 
   /// Shows [page] now when its image is cached. The engine follows.
@@ -531,9 +731,14 @@ class ReaderController extends ChangeNotifier {
             await _refreshMarks();
             notifyListeners();
           });
+          // A shifted view takes its marks with its geometry.
+          final y = _shiftY;
+          if (y != null && !_dragging) _loadGeometry(y: y.round());
         }
       });
-      await _setPosition(r.position);
+      // A book that closed in a shifted view opens as that view. A jump
+      // (from a note in the library) goes to a fixed page.
+      await _showPosition(r.position, shifted: jumpTo == null && (saved?.lastShifted ?? false));
       // Open this book again if the app closes while it shows.
       if (!_disposed) unawaited(services.lastBook.opened(path));
       // A jump (from a note in the library) is not a sync conflict to resolve.
@@ -547,11 +752,12 @@ class ReaderController extends ChangeNotifier {
   Future<void> _resize() async {
     final size = _requestedSize!;
     if (size == _renderSize || _renderSize == null) return;
+    final shifted = _positionShifted;
     final r = await _engine.resize(size.width.toInt(), size.height.toInt());
     _renderSize = size;
     _clearPages();
     toc = r.toc;
-    await _setPosition(r.position);
+    await _showPosition(r.position, shifted: shifted);
   }
 
   void _onSettingsChanged() {
@@ -568,11 +774,13 @@ class ReaderController extends ChangeNotifier {
 
   /// Lays the book out again with the current settings and keeps the
   /// reading position.
+  /// A shifted view stays a shifted view at the same first line.
   Future<void> _relayout() => _serial(() async {
+    final shifted = _positionShifted;
     final r = await _engine.setLayout(_layout());
     _clearPages();
     toc = r.toc;
-    await _setPosition(r.position);
+    await _showPosition(r.position, shifted: shifted);
   });
 
   void _onAdvancedChanged() {
@@ -588,8 +796,9 @@ class ReaderController extends ChangeNotifier {
         await _engine.setGamma(next.fontGamma);
         final p = position;
         if (p == null) return;
+        final shifted = _positionShifted;
         _clearPages();
-        await _setPosition(p);
+        await _showPosition(p, shifted: shifted);
       });
     }
   }
@@ -614,6 +823,7 @@ class ReaderController extends ChangeNotifier {
     // An engine position is a place on the fixed pages.
     _resetShift();
     position = p;
+    _positionShifted = false;
     await _refreshMarks(p.page);
     if (_disposed) return;
     displayPage = p.page;
@@ -680,6 +890,7 @@ class ReaderController extends ChangeNotifier {
 
   void _clearPages({bool keepCurrent = true}) {
     _generation++;
+    _endRun();
     if (isShifted) {
       // A new layout: the rows and the page images are no longer valid.
       // The listeners must stop drawing the slices before the images go.
@@ -711,37 +922,48 @@ class ReaderController extends ChangeNotifier {
 
   void turnPage(int delta) {
     if (!isOpen || _dragging) return;
-    var target = displayPage + delta;
-    final g = _geo;
-    final y = _shiftY;
-    final shifted = g != null && y != null;
-    if (shifted) {
-      // A page turn returns to the fixed pages. Forward shows the page
-      // with the first line below the view, back the page with the last
-      // line above it.
-      final forward = delta > 0;
-      final top = y.round();
-      final current = g.pageAt(top) ?? displayPage;
-      final row = shiftTurnRow(forward: forward, top: top, end: _shiftEnd ?? g.visibleEnd(top));
-      target = shiftTurnPage(forward: forward, found: g.pageAt(row) ?? current, current: current, pageCount: pageCount);
-      _resetShift();
-    } else if (target < 1 || target > pageCount) {
+    final forward = delta > 0;
+    if (_geo != null && _shiftY != null) {
+      _turnShifted(forward);
       return;
     }
-    _direction = delta < 0 ? -1 : 1;
+    if (!forward && _runEndPage == displayPage && _runHistory.isNotEmpty) {
+      // Back from the page where a forward turn ended the aligned run.
+      final view = _runHistory.removeLast();
+      _runEndPage = null;
+      _countTurn(forward);
+      _resumeShift(view);
+      return;
+    }
+    _endRun();
+    final target = displayPage + delta;
+    if (target < 1 || target > pageCount) return;
+    _countTurn(forward);
+    _showFixedPage(target);
+  }
+
+  void _countTurn(bool forward) {
+    _direction = forward ? 1 : -1;
     speed.pageTurned(DateTime.now());
-    if (_pages.containsKey(target)) {
-      // Show the cached page now. The engine follows.
-      displayPage = target;
+  }
+
+  /// Shows fixed page [page]: a cached image at once, then the engine
+  /// follows.
+  void _showFixedPage(int page) {
+    final wasShifted = isShifted;
+    _resetShift();
+    if (_pages.containsKey(page)) {
+      displayPage = page;
       notifyListeners();
-    } else if (shifted) {
+    } else if (wasShifted) {
       notifyListeners();
     }
-    _serial(() async => _setPosition(await _engine.gotoPage(target)));
+    _serial(() async => _setPosition(await _engine.gotoPage(page)));
   }
 
   Future<void> gotoPage(int page) {
     if (!isOpen) return Future.value();
+    _endRun();
     _direction = 1;
     final target = page.clamp(1, pageCount);
     return _serial(() async => _setPosition(await _engine.gotoPage(target)));
@@ -754,11 +976,13 @@ class ReaderController extends ChangeNotifier {
     if (!isOpen) return Future.value();
     final target = page.clamp(1, pageCount);
     if (target == displayPage) return Future.value();
+    _endRun();
     _direction = 1;
     return _serial(() async {
       final from = position?.xpointer;
+      final shifted = _shiftY != null;
       final p = await _engine.gotoPage(target);
-      if (from != null) _backStack.push(from);
+      if (from != null) _backStack.push(from, shifted: shifted);
       await _setPosition(p);
     });
   }
@@ -768,6 +992,7 @@ class ReaderController extends ChangeNotifier {
 
   /// Returns false when the XPointer is not in the document.
   Future<bool> gotoXPointer(String xpointer) => _serial(() async {
+    _endRun();
     final p = await _engine.gotoXPointer(xpointer);
     if (p == null) return false;
     await _setPosition(p);
@@ -847,12 +1072,32 @@ class ReaderController extends ChangeNotifier {
   /// Scale from page pixels to widget pixels.
   double pixelScale(ui.Size widget) => _renderSize == null ? 1 : widget.width / _renderSize!.width;
 
+  /// Document row of a point (page pixels) in the shifted view at rest, or
+  /// null when the point is not on its text.
+  int? _shiftRowAt(ui.Offset px) {
+    final g = _geo;
+    final y = _shiftY;
+    if (g == null || y == null || _dragging) return null;
+    final rows = (_shiftEnd ?? (y + g.areaHeight)) - y;
+    final dy = px.dy - g.areaTop;
+    if (dy < 0 || dy >= rows) return null;
+    return (y + dy).round();
+  }
+
   /// The highlight under a point (page pixels), or null.
   Annotation? annotationAt(ui.Offset px) {
-    for (final e in pageMarks.entries) {
+    var y = px.dy;
+    var marks = pageMarks;
+    if (isShifted) {
+      final row = _shiftRowAt(px);
+      if (row == null) return null;
+      y = row.toDouble();
+      marks = _shiftMarks;
+    }
+    for (final e in marks.entries) {
       final id = int.tryParse(e.key);
       if (id == null) continue;
-      if (e.value.any((r) => r.contains(px.dx, px.dy))) {
+      if (e.value.any((r) => r.contains(px.dx, y))) {
         for (final a in annotations) {
           if (a.id == id) return a;
         }
@@ -993,9 +1238,18 @@ class ReaderController extends ChangeNotifier {
   PageLink? linkAt(ui.Offset px) {
     // A little slack: link text is small for a finger.
     const pad = 12.0;
-    for (final l in pageLinks) {
+    var y = px.dy;
+    var links = pageLinks;
+    if (isShifted) {
+      // In a shifted view the boxes are in document rows.
+      final row = _shiftRowAt(px);
+      if (row == null) return null;
+      y = row.toDouble();
+      links = _shiftLinks;
+    }
+    for (final l in links) {
       for (final r in l.boxes) {
-        if (px.dx >= r.left - pad && px.dx <= r.right + pad && px.dy >= r.top - pad && px.dy <= r.bottom + pad) {
+        if (px.dx >= r.left - pad && px.dx <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad) {
           return l;
         }
       }
@@ -1011,18 +1265,27 @@ class ReaderController extends ChangeNotifier {
     }
     await _serial(() async {
       final from = position?.xpointer;
+      final shifted = _shiftY != null;
       final p = await _engine.gotoLink(link.href);
       if (p == null) return;
-      if (from != null) _backStack.push(from);
+      _endRun();
+      if (from != null) _backStack.push(from, shifted: shifted);
       await _setPosition(p);
     });
   }
 
   /// Returns to the place before the last followed link or slider jump.
+  /// A shifted view comes back as the shifted view that starts at the same
+  /// line.
   Future<void> goBack() async {
     final place = _backStack.pop();
     if (place == null) return;
-    await gotoXPointer(place);
+    _endRun();
+    if (place.shifted && await _serial(() => _showShiftedAt(place.xpointer))) {
+      notifyListeners();
+      return;
+    }
+    await gotoXPointer(place.xpointer);
     notifyListeners();
   }
 
@@ -1156,7 +1419,7 @@ class ReaderController extends ChangeNotifier {
     final id = bookId;
     final xp = position?.xpointer;
     if (id == null || xp == null) return;
-    await services.db.savePosition(id, xp, progress);
+    await services.db.savePosition(id, xp, progress, shifted: _positionShifted);
   }
 
   @override
