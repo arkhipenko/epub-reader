@@ -84,6 +84,36 @@ NOTE: The first build takes about 10 to 20 minutes. It downloads and compiles ab
 
 NOTE: Steps 3 and 4 make files that are not in git. Run step 3 before the first Flutter build.
 
+#### Release signing (Google Play)
+
+Google Play does not accept a build that has a debug signature. The app uses Play App Signing:
+Google keeps the app signing key, and you sign each upload with your upload key. If you lose the
+upload key, you can ask Google to reset it.
+
+1. Make the upload key one time, outside the repository:
+   `keytool -genkeypair -keystore upload.jks -storetype PKCS12 -alias upload -keyalg RSA -keysize 2048 -validity 10000`
+2. Make `app/android/key.properties` with these lines. Git ignores this file.
+   ```
+   storeFile=/full/path/to/upload.jks
+   storePassword=<password>
+   keyAlias=upload
+   keyPassword=<password>
+   ```
+   On Windows, write the path with forward slashes (`D:/keys/upload.jks`). A backslash is an escape
+   character in this file. A PKCS12 keystore uses the same password for the store and the key.
+3. Build the bundle from `app/`: `flutter build appbundle --release`. The output is
+   `build/app/outputs/bundle/release/app-release.aab`.
+
+Each build machine needs a copy of the keystore and its own `key.properties`. Keep a backup of the
+keystore and the password.
+
+If `key.properties` is not there, release builds use the debug key and Gradle shows a warning. You can
+install such a build on your own device, but Google Play rejects it. If the file has an empty or missing
+entry, or the keystore is not found, the build stops with a message.
+
+The application id is `com.smart4smart.koreader`, the same as the iOS bundle id. Do not change it after
+the first upload to Google Play. A new id makes a different app.
+
 ### iOS
 
 The native library builds on macOS with Xcode. KOReader has no iOS target. The script applies
@@ -134,7 +164,7 @@ NOTE: The Xcode build stops with "file not found" for `libcre_ffi.a` until step 
   it, `test/opds_repair_test.dart` with its saved pages is the proof of the correction.
 - On Android, an integration test removes the app from the device when it ends. Before each run,
   install the debug APK and allow file access, or the test cannot read the Download folder:
-  `adb shell appops set com.arkhipenko.epubreader MANAGE_EXTERNAL_STORAGE allow`
+  `adb shell appops set com.smart4smart.koreader MANAGE_EXTERNAL_STORAGE allow`
 - In debug builds, the reader's Position info panel has a KOReader XPointer test for `juliet.epub`.
   It checks that the engine finds the same text as KOReader at five XPointers from the KOReader
   unit tests.
